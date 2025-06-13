@@ -187,8 +187,14 @@ export default function AddBowlPage() {
 
           if (uploadResult) {
             console.log("Image set uploaded:", uploadResult)
+
+            // Use medium URL and path for the legacy fields to maintain backward compatibility
             const { error: imageError } = await supabase.from("bowl_images").insert({
               bowl_id: bowlId,
+              // Add these fields to satisfy the NOT NULL constraint
+              image_url: uploadResult.medium.url,
+              storage_path: uploadResult.medium.path,
+              // New fields
               thumbnail_url: uploadResult.thumbnail.url,
               thumbnail_path: uploadResult.thumbnail.path,
               medium_url: uploadResult.medium.url,
@@ -328,6 +334,18 @@ export default function AddBowlPage() {
               </div>
 
               <div>
+                <Label htmlFor="comments">Comments</Label>
+                <Textarea
+                  id="comments"
+                  name="comments"
+                  value={formData.comments}
+                  onChange={handleInputChange}
+                  placeholder="Notes about the turning process, challenges, or special features..."
+                  rows={4}
+                />
+              </div>
+
+              <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label>Images</Label>
                   {hasCamera && (
@@ -340,18 +358,6 @@ export default function AddBowlPage() {
                   )}
                 </div>
                 <EnhancedImageUpload images={images} onImagesChange={setImages} maxImages={10} disabled={loading} />
-              </div>
-
-              <div>
-                <Label htmlFor="comments">Comments</Label>
-                <Textarea
-                  id="comments"
-                  name="comments"
-                  value={formData.comments}
-                  onChange={handleInputChange}
-                  placeholder="Notes about the turning process, challenges, or special features..."
-                  rows={4}
-                />
               </div>
 
               <div className="flex gap-4">

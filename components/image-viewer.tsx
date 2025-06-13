@@ -66,9 +66,11 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [isOpen, currentIndex])
 
-  if (!images.length) return null
+  if (!images || !images.length) return null
 
-  const currentImage = images[currentIndex]
+  // Ensure currentIndex is within bounds
+  const safeIndex = Math.max(0, Math.min(currentIndex, images.length - 1))
+  const currentImage = images[safeIndex] || {}
 
   const goToNext = () => {
     setCurrentIndex((prev) => (prev + 1) % images.length)
@@ -100,9 +102,11 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
   }
 
   const downloadImage = () => {
+    if (!currentImage.original) return
+
     const link = document.createElement("a")
     link.href = currentImage.original
-    link.download = `bowl-image-${currentIndex + 1}.jpg`
+    link.download = `bowl-image-${safeIndex + 1}.jpg`
     link.click()
   }
 
@@ -123,14 +127,14 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
             <div className="flex items-center justify-between text-white">
               <div className="flex items-center gap-4">
                 <Badge variant="secondary" className="bg-white/20 text-white">
-                  {currentIndex + 1} of {images.length}
+                  {safeIndex + 1} of {images.length}
                 </Badge>
-                {currentImage.dimensions && (
+                {currentImage?.dimensions && (
                   <Badge variant="secondary" className="bg-white/20 text-white">
                     {currentImage.dimensions.width} × {currentImage.dimensions.height}
                   </Badge>
                 )}
-                {currentImage.fileSize && (
+                {currentImage?.fileSize && (
                   <Badge variant="secondary" className="bg-white/20 text-white">
                     {formatFileSize(currentImage.fileSize)}
                   </Badge>
@@ -151,8 +155,8 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
               }}
             >
               <Image
-                src={currentImage.full || "/placeholder.svg"}
-                alt={`Bowl image ${currentIndex + 1}`}
+                src={currentImage?.full || "/placeholder.svg?height=800&width=800"}
+                alt={`Bowl image ${safeIndex + 1}`}
                 width={800}
                 height={800}
                 className="max-w-full max-h-full object-contain"
@@ -200,7 +204,13 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
                 <RotateCw className="w-4 h-4" />
               </Button>
               <div className="w-px h-6 bg-white/20 mx-2" />
-              <Button variant="ghost" size="icon" onClick={downloadImage} className="text-white hover:bg-white/20">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={downloadImage}
+                className="text-white hover:bg-white/20"
+                disabled={!currentImage?.original}
+              >
                 <Download className="w-4 h-4" />
               </Button>
             </div>
@@ -212,21 +222,21 @@ export default function ImageViewer({ images, initialIndex = 0, isOpen, onClose 
               <div className="flex gap-2 bg-black/50 rounded-lg p-2 max-w-md overflow-x-auto">
                 {images.map((image, index) => (
                   <button
-                    key={image.id}
+                    key={image.id || index}
                     onClick={() => {
                       setCurrentIndex(index)
                       setZoom(1)
                       setRotation(0)
                     }}
                     className={`relative w-12 h-12 rounded overflow-hidden flex-shrink-0 ${
-                      index === currentIndex ? "ring-2 ring-white" : "opacity-60 hover:opacity-80"
+                      index === safeIndex ? "ring-2 ring-white" : "opacity-60 hover:opacity-80"
                     }`}
                   >
                     <Image
-                      src={image.thumbnail || "/placeholder.svg"}
+                      src={image?.thumbnail || "/placeholder.svg?height=75&width=75"}
                       alt={`Thumbnail ${index + 1}`}
                       fill
-                      className="object-cover"
+                      className="object-contain bg-white/30"
                     />
                   </button>
                 ))}

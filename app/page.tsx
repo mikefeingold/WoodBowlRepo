@@ -54,6 +54,8 @@ export default function HomePage() {
               original: url,
             })),
           }))
+          // Sort demo bowls by date in descending order (newest first)
+          demoBowls.sort((a, b) => new Date(b.dateMade).getTime() - new Date(a.dateMade).getTime())
           setBowls(demoBowls)
           setLoading(false)
           return
@@ -66,8 +68,8 @@ export default function HomePage() {
 
         console.log("Fetching bowls from Supabase...")
 
-        // Fetch all bowls from Supabase
-        const { data, error } = await supabase.from("bowls").select("*").order("created_at", { ascending: false })
+        // Fetch all bowls from Supabase, ordered by date_made in descending order (newest first)
+        const { data, error } = await supabase.from("bowls").select("*").order("date_made", { ascending: false })
 
         if (error) {
           console.error("Error fetching bowls:", error)
@@ -185,52 +187,77 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredBowls.map((bowl) => (
               <Link key={bowl.id} href={`/bowl/${bowl.id}`}>
-                <Card className="hover:shadow-lg transition-shadow cursor-pointer bg-white/80 backdrop-blur-sm group">
-                  <CardHeader className="pb-3">
+                <Card className="hover:shadow-lg transition-shadow cursor-pointer bg-white/80 backdrop-blur-sm group overflow-hidden">
+                  <CardHeader className="pb-0 p-4">
                     <CardTitle className="text-lg text-amber-900">{bowl.woodType}</CardTitle>
                     <div className="flex items-center text-sm text-amber-700">
                       <Calendar className="w-4 h-4 mr-1" />
                       {new Date(bowl.dateMade).toLocaleDateString()}
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    {bowl.images.length > 0 && (
-                      <div className="mb-3 relative overflow-hidden rounded-md">
-                        <Image
-                          src={bowl.images[0]?.medium || "/placeholder.svg?height=200&width=300"}
-                          alt={`${bowl.woodType} bowl`}
-                          width={300}
-                          height={200}
-                          className="w-full h-32 object-cover transition-transform group-hover:scale-105"
-                        />
-                        {bowl.images.length > 1 && (
-                          <Badge className="absolute top-2 right-2 bg-black/50 text-white text-xs">
-                            +{bowl.images.length - 1}
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <div className="text-sm">
-                        <span className="font-medium text-amber-800">Source:</span>{" "}
-                        <span className="text-amber-700">{bowl.woodSource}</span>
-                      </div>
-                      {bowl.finishes.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {bowl.finishes.slice(0, 3).map((finish, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {finish}
-                            </Badge>
-                          ))}
-                          {bowl.finishes.length > 3 && (
-                            <Badge variant="secondary" className="text-xs">
-                              +{bowl.finishes.length - 3}
+                  <CardContent className="p-0">
+                    {bowl.images.length > 0 ? (
+                      <div className="relative w-full">
+                        <div className="w-full aspect-[4/3] relative">
+                          <Image
+                            src={bowl.images[0]?.medium || "/placeholder.svg?height=300&width=400"}
+                            alt={`${bowl.woodType} bowl`}
+                            fill
+                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                            className="object-cover"
+                            priority
+                          />
+                          {bowl.images.length > 1 && (
+                            <Badge className="absolute top-2 right-2 bg-black/50 text-white text-xs">
+                              +{bowl.images.length - 1}
                             </Badge>
                           )}
                         </div>
-                      )}
-                      {bowl.comments && <p className="text-sm text-amber-700 line-clamp-2">{bowl.comments}</p>}
-                    </div>
+                        <div className="p-4 space-y-2">
+                          <div className="text-sm">
+                            <span className="font-medium text-amber-800">Source:</span>{" "}
+                            <span className="text-amber-700">{bowl.woodSource}</span>
+                          </div>
+                          {bowl.finishes.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {bowl.finishes.slice(0, 3).map((finish, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {finish}
+                                </Badge>
+                              ))}
+                              {bowl.finishes.length > 3 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  +{bowl.finishes.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                          {bowl.comments && <p className="text-sm text-amber-700 line-clamp-2">{bowl.comments}</p>}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 space-y-2">
+                        <div className="text-sm">
+                          <span className="font-medium text-amber-800">Source:</span>{" "}
+                          <span className="text-amber-700">{bowl.woodSource}</span>
+                        </div>
+                        {bowl.finishes.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {bowl.finishes.slice(0, 3).map((finish, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {finish}
+                              </Badge>
+                            ))}
+                            {bowl.finishes.length > 3 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{bowl.finishes.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                        {bowl.comments && <p className="text-sm text-amber-700 line-clamp-2">{bowl.comments}</p>}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </Link>
