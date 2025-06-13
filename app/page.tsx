@@ -184,7 +184,7 @@ export default function HomePage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" style={{ gridAutoFlow: "row" }}>
             {filteredBowls.map((bowl) => (
               <Link key={bowl.id} href={`/bowl/${bowl.id}`}>
                 <Card className="hover:shadow-lg transition-shadow cursor-pointer bg-white/80 backdrop-blur-sm group overflow-hidden">
