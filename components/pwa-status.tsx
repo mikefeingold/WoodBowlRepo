@@ -2,15 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Download, Wifi, WifiOff, Bell, Smartphone, X } from "lucide-react"
-import { pwaInstaller, notificationManager, networkManager } from "@/lib/pwa-utils"
+import { Download, WifiOff, Smartphone, X } from "lucide-react"
+import { pwaInstaller, networkManager } from "@/lib/pwa-utils"
 
 export default function PWAStatus() {
   const [canInstall, setCanInstall] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
   const [showInstallPrompt, setShowInstallPrompt] = useState(false)
   const [showOfflineBanner, setShowOfflineBanner] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -33,11 +31,6 @@ export default function PWAStatus() {
         setShowOfflineBanner(true)
       }
     })
-
-    // Check notification permission
-    if ("Notification" in window) {
-      setNotificationsEnabled(Notification.permission === "granted")
-    }
 
     // Show install prompt after delay if not installed
     const timer = setTimeout(() => {
@@ -62,27 +55,12 @@ export default function PWAStatus() {
     }
   }
 
-  const handleEnableNotifications = async () => {
-    const granted = await notificationManager.requestPermission()
-    if (granted) {
-      setNotificationsEnabled(true)
-    }
-  }
-
   if (!mounted) {
     return null
   }
 
   return (
     <>
-      {/* Network Status */}
-      <div className="fixed top-4 right-4 z-50">
-        <Badge variant={isOnline ? "default" : "destructive"} className="flex items-center gap-1">
-          {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {isOnline ? "Online" : "Offline"}
-        </Badge>
-      </div>
-
       {/* Offline Banner */}
       {showOfflineBanner && !isOnline && (
         <div className="fixed top-16 left-4 right-4 z-40">
@@ -126,28 +104,6 @@ export default function PWAStatus() {
                     Install
                   </Button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Notification Prompt */}
-      {!notificationsEnabled && typeof window !== "undefined" && "Notification" in window && (
-        <div className="fixed bottom-20 left-4 right-4 z-30">
-          <Card className="border-green-200 bg-green-50">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Bell className="w-5 h-5 text-green-600" />
-                  <div>
-                    <div className="font-medium text-green-900">Enable Notifications</div>
-                    <div className="text-sm text-green-700">Get reminders for your woodworking projects</div>
-                  </div>
-                </div>
-                <Button size="sm" onClick={handleEnableNotifications} className="bg-green-600 hover:bg-green-700">
-                  Enable
-                </Button>
               </div>
             </CardContent>
           </Card>
