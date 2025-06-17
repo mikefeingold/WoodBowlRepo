@@ -23,9 +23,12 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: "/icon-192x192.png",
-    shortcut: "/icon-192x192.png",
-    apple: "/icon-192x192.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [{ url: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
   },
   appleWebApp: {
     capable: true,
@@ -52,7 +55,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Favicon and Icons */}
+        <link rel="icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="icon" href="/icon-192x192.png" type="image/png" sizes="192x192" />
+        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+
+        {/* PWA Manifest */}
         <link rel="manifest" href="/manifest.json" />
+
+        {/* PWA Meta Tags */}
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
