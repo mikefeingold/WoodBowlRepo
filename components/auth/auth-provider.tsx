@@ -42,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null)
       } catch (error) {
         console.error("AuthProvider: Error getting initial session:", error)
+        setUser(null)
       } finally {
         setLoading(false)
       }
@@ -54,7 +55,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabaseAuth.auth.onAuthStateChange(async (event, session) => {
       console.log("AuthProvider: Auth state changed:", event, !!session?.user)
-      setUser(session?.user ?? null)
+
+      if (event === "SIGNED_OUT") {
+        console.log("AuthProvider: User signed out, clearing user state")
+        setUser(null)
+        // Clear any cached data
+        localStorage.removeItem("supabase.auth.token")
+        sessionStorage.clear()
+      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        console.log("AuthProvider: User signed in or token refreshed")
+        setUser(session?.user ?? null)
+      } else {
+        setUser(session?.user ?? null)
+      }
+
       setLoading(false)
     })
 
@@ -65,8 +79,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signOut = async () => {
-    console.log("AuthProvider: Signing out")
-    await supabaseAuth.auth.signOut()
+    try {
+      console.log("AuthProvider: Initiating sign out")
+      setLoading(true)
+
+      // Clear user state immediately for better UX
+      setUser(null)
+
+      // Sign out from Supabase
+      const { error } = await supabaseAuth.auth.signOut()
+
+      if (error) {
+        console.error("AuthProvider: Sign out error:", error)
+        throw error
+      }
+
+      console.log("AuthProvider: Sign out successful")
+
+      // Additional cleanup
+      localStorage.removeItem("supabase.auth.token")
+      sessionStorage.clear()
+
+      // Force reload to clear any cached state
+      window.location.reload()
+    } catch (error) {
+      console.error("AuthProvider: Sign out failed:", error)
+      // Restore user state if sign out failed
+      const {
+        data: { session },
+      } = await supabaseAuth.auth.getSession()
+      setUser(session?.user ?? null)
+      throw error
+    } finally {
+      setLoading(false)
+    }
   }
 
   console.log("AuthProvider: Rendering with user:", !!user, "loading:", loading)

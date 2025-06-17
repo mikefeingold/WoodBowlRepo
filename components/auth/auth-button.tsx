@@ -14,6 +14,7 @@ export function AuthButton() {
   const [showModal, setShowModal] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [signOutLoading, setSignOutLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin")
   const [error, setError] = useState<string>("")
 
@@ -171,6 +172,9 @@ export function AuthButton() {
   }
 
   const handleSignOut = async () => {
+    console.log("AuthButton: Sign out button clicked")
+    setSignOutLoading(true)
+
     try {
       await signOut()
       toast({
@@ -178,12 +182,14 @@ export function AuthButton() {
         description: "You've been signed out successfully.",
       })
     } catch (error) {
-      console.error("Sign out error:", error)
+      console.error("AuthButton: Sign out error:", error)
       toast({
-        title: "Error",
-        description: "Error signing out. Please try again.",
+        title: "Sign Out Failed",
+        description: "There was an error signing out. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      setSignOutLoading(false)
     }
   }
 
@@ -224,11 +230,11 @@ export function AuthButton() {
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-2 text-sm text-amber-700">
           <User className="w-4 h-4" />
-          <span>{user.user_metadata?.full_name || user.email}</span>
+          <span className="hidden sm:inline">{user.user_metadata?.full_name || user.email}</span>
         </div>
-        <Button variant="outline" size="sm" onClick={handleSignOut}>
+        <Button variant="outline" size="sm" onClick={handleSignOut} disabled={signOutLoading}>
           <LogOut className="w-4 h-4 mr-2" />
-          Sign Out
+          {signOutLoading ? "Signing Out..." : "Sign Out"}
         </Button>
       </div>
     )

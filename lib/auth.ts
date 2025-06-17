@@ -79,8 +79,22 @@ export const signInWithGoogle = async () => {
 }
 
 export const signOut = async () => {
-  const { error } = await supabaseAuth.auth.signOut()
-  return { error }
+  try {
+    console.log("lib/auth: Initiating sign out")
+
+    const { error } = await supabaseAuth.auth.signOut()
+
+    if (error) {
+      console.error("lib/auth: Sign out error:", error)
+      return { error }
+    }
+
+    console.log("lib/auth: Sign out successful")
+    return { error: null }
+  } catch (err) {
+    console.error("lib/auth: Sign out exception:", err)
+    return { error: { message: "An unexpected error occurred during sign out" } }
+  }
 }
 
 export const getCurrentUser = async () => {
