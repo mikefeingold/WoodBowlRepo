@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { supabase } from "@/lib/supabase"
-import { RefreshCw, Upload, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
+import { RefreshCw, Upload, CheckCircle, XCircle, AlertTriangle, Database } from "lucide-react"
 
 export default function StorageDiagnostics() {
   const [testing, setTesting] = useState(false)
@@ -19,18 +19,21 @@ export default function StorageDiagnostics() {
 
     // Test 1: Check if storage is accessible
     try {
+      console.log("Testing storage access...")
       const { data: buckets, error } = await supabase.storage.listBuckets()
       if (error) {
         testResults.push({
           test: "Storage Access",
           status: "error",
           message: error.message,
+          details: "Cannot access Supabase Storage. Check your API keys and permissions.",
         })
       } else {
         testResults.push({
           test: "Storage Access",
           status: "success",
           message: `Found ${buckets.length} buckets`,
+          details: `Available buckets: ${buckets.map((b) => b.name).join(", ") || "none"}`,
         })
       }
     } catch (e) {
@@ -38,23 +41,27 @@ export default function StorageDiagnostics() {
         test: "Storage Access",
         status: "error",
         message: e instanceof Error ? e.message : "Unknown error",
+        details: "Failed to connect to Supabase Storage",
       })
     }
 
-    // Test 2: Check bowl-images bucket
+    // Test 2: Check bowl-images bucket specifically
     try {
-      const { data: files, error } = await supabase.storage.from("bowl-images").list()
+      console.log("Testing bowl-images bucket...")
+      const { data: files, error } = await supabase.storage.from("bowl-images").list("", { limit: 1 })
       if (error) {
         testResults.push({
           test: "Bowl Images Bucket",
           status: "error",
           message: error.message,
+          details: "This usually means missing storage policies. Run the storage policy fix script.",
         })
       } else {
         testResults.push({
           test: "Bowl Images Bucket",
           status: "success",
-          message: `Bucket accessible, ${files.length} items`,
+          message: `Bucket accessible`,
+          details: `Can list files in bucket (found ${files.length} items in root)`,
         })
       }
     } catch (e) {
@@ -62,11 +69,43 @@ export default function StorageDiagnostics() {
         test: "Bowl Images Bucket",
         status: "error",
         message: e instanceof Error ? e.message : "Unknown error",
+        details: "Failed to access bowl-images bucket",
       })
     }
 
-    // Test 3: Try a small upload
+    // Test 3: Check bucket configuration
     try {
+      console.log("Checking bucket configuration...")
+      const { data: buckets } = await supabase.storage.listBuckets()
+      const bowlBucket = buckets?.find((b) => b.name === "bowl-images")
+
+      if (bowlBucket) {
+        testResults.push({
+          test: "Bucket Configuration",
+          status: bowlBucket.public ? "success" : "warning",
+          message: bowlBucket.public ? "Bucket is public" : "Bucket is private",
+          details: `ID: ${bowlBucket.id}, Public: ${bowlBucket.public}, Created: ${bowlBucket.created_at}`,
+        })
+      } else {
+        testResults.push({
+          test: "Bucket Configuration",
+          status: "error",
+          message: "bowl-images bucket not found in bucket list",
+          details: "The bucket may not exist or you don't have permission to see it",
+        })
+      }
+    } catch (e) {
+      testResults.push({
+        test: "Bucket Configuration",
+        status: "error",
+        message: "Failed to check bucket configuration",
+        details: e instanceof Error ? e.message : "Unknown error",
+      })
+    }
+
+    // Test 4: Try a small upload
+    try {
+      console.log("Testing upload capability...")
       const testData =
         "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBmaWxsPSIjRkY2NjAwIi8+Cjwvc3ZnPgo="
       const testPath = `test/diagnostic-${Date.now()}.svg`
@@ -89,6 +128,7 @@ export default function StorageDiagnostics() {
           test: "Upload Test",
           status: "error",
           message: uploadError.message,
+          details: "Upload failed. This usually indicates missing storage policies.",
         })
       } else {
         // Clean up test file
@@ -97,6 +137,7 @@ export default function StorageDiagnostics() {
           test: "Upload Test",
           status: "success",
           message: "Upload and cleanup successful",
+          details: "Storage upload/delete permissions are working correctly",
         })
       }
     } catch (e) {
@@ -104,24 +145,27 @@ export default function StorageDiagnostics() {
         test: "Upload Test",
         status: "error",
         message: e instanceof Error ? e.message : "Unknown error",
+        details: "Failed to test upload functionality",
       })
     }
 
-    // Test 4: Check storage policies
+    // Test 5: Check public URL generation
     try {
-      // This is a indirect test - try to get public URL
+      console.log("Testing public URL generation...")
       const { data } = supabase.storage.from("bowl-images").getPublicUrl("test.jpg")
-      if (data.publicUrl) {
+      if (data.publicUrl && data.publicUrl.includes("supabase")) {
         testResults.push({
           test: "Public URL Generation",
           status: "success",
           message: "Can generate public URLs",
+          details: `Sample URL: ${data.publicUrl}`,
         })
       } else {
         testResults.push({
           test: "Public URL Generation",
           status: "warning",
           message: "Public URL generation may have issues",
+          details: data.publicUrl || "No URL generated",
         })
       }
     } catch (e) {
@@ -129,6 +173,7 @@ export default function StorageDiagnostics() {
         test: "Public URL Generation",
         status: "error",
         message: e instanceof Error ? e.message : "Unknown error",
+        details: "Failed to generate public URLs",
       })
     }
 
@@ -162,6 +207,8 @@ export default function StorageDiagnostics() {
     }
   }
 
+  const hasErrors = results.some((r) => r.status === "error")
+
   return (
     <Card>
       <CardHeader>
@@ -181,7 +228,7 @@ export default function StorageDiagnostics() {
               </>
             ) : (
               <>
-                <Upload className="w-4 h-4 mr-2" />
+                <Database className="w-4 h-4 mr-2" />
                 Run Tests
               </>
             )}
@@ -191,32 +238,48 @@ export default function StorageDiagnostics() {
         {results.length > 0 && (
           <div className="space-y-3">
             {results.map((result, index) => (
-              <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center gap-3">
+              <div key={index} className="flex items-start justify-between p-3 border rounded-lg">
+                <div className="flex items-start gap-3 flex-1">
                   {getStatusIcon(result.status)}
-                  <div>
+                  <div className="flex-1">
                     <div className="font-medium">{result.test}</div>
-                    <div className="text-sm text-gray-600">{result.message}</div>
+                    <div className="text-sm text-gray-600 mb-1">{result.message}</div>
+                    {result.details && (
+                      <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded font-mono">{result.details}</div>
+                    )}
                   </div>
                 </div>
-                {getStatusBadge(result.status)}
+                <div className="ml-2">{getStatusBadge(result.status)}</div>
               </div>
             ))}
           </div>
         )}
 
-        {results.some((r) => r.status === "error") && (
+        {hasErrors && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <h3 className="font-medium text-red-900 mb-2">Storage Issues Detected</h3>
+            <h3 className="font-medium text-red-900 mb-2">🚨 Storage Issues Detected</h3>
             <div className="text-sm text-red-700 space-y-2">
-              <p>To fix storage upload issues:</p>
+              <p>
+                <strong>Most common fix:</strong> Run the storage policy script
+              </p>
               <ol className="list-decimal list-inside space-y-1 ml-2">
-                <li>Run the comprehensive RLS fix SQL script</li>
-                <li>Go to Supabase Dashboard → Storage → Policies</li>
-                <li>Create policies for "bowl-images" bucket allowing all operations</li>
-                <li>Make sure the bucket is set to "Public"</li>
+                <li>Go to your Supabase Dashboard → SQL Editor</li>
+                <li>
+                  Run the <code>scripts/06-fix-storage-policies.sql</code> script
+                </li>
+                <li>Verify your bucket is set to "Public" in Storage settings</li>
+                <li>Re-run this diagnostic test</li>
               </ol>
             </div>
+          </div>
+        )}
+
+        {results.length > 0 && !hasErrors && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <h3 className="font-medium text-green-900 mb-2">✅ Storage Configuration Looks Good!</h3>
+            <p className="text-sm text-green-700">
+              Your storage setup appears to be working correctly. You should be able to upload and manage bowl images.
+            </p>
           </div>
         )}
       </CardContent>

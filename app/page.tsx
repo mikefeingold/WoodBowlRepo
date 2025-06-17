@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Plus, Search, Calendar, TreesIcon as Wood, Bug } from "lucide-react"
+import { Plus, Search, Calendar, TreesIcon as Wood, Bug, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib/supabase"
 import { getDemoBowls } from "@/lib/demo-data"
 import { SupabaseSetup } from "@/components/supabase-setup"
+import { AuthButton } from "@/components/auth/auth-button"
+import { useAuth } from "@/components/auth/auth-provider"
 
 interface BowlImage {
   id: string
@@ -31,6 +33,8 @@ interface Bowl {
   comments: string
   images: BowlImage[]
   createdAt: string
+  userId?: string | null
+  createdBy?: string
 }
 
 export default function HomePage() {
@@ -38,6 +42,7 @@ export default function HomePage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { user } = useAuth()
 
   useEffect(() => {
     async function fetchBowls() {
@@ -53,6 +58,7 @@ export default function HomePage() {
               full: url,
               original: url,
             })),
+            createdBy: "Demo User",
           }))
           // Sort demo bowls by date in descending order (newest first)
           demoBowls.sort((a, b) => new Date(b.dateMade).getTime() - new Date(a.dateMade).getTime())
@@ -110,7 +116,8 @@ export default function HomePage() {
     (bowl) =>
       bowl.woodType.toLowerCase().includes(searchTerm.toLowerCase()) ||
       bowl.woodSource.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bowl.comments.toLowerCase().includes(searchTerm.toLowerCase()),
+      bowl.comments.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (bowl.createdBy && bowl.createdBy.toLowerCase().includes(searchTerm.toLowerCase())),
   )
 
   if (loading) {
@@ -126,18 +133,28 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div className="mb-4 md:mb-0">
-            <h1 className="text-4xl font-bold text-amber-900 mb-2">Wood Bowl Tracker [github change]</h1>
+            <h1 className="text-4xl font-bold text-amber-900 mb-2">Wood Bowl Tracker</h1>
             <p className="text-amber-700">Track your handcrafted wooden bowls</p>
           </div>
-          <div className="flex gap-2">
-            <Link href="/add">
-              <Button className="bg-amber-600 hover:bg-amber-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Add New Bowl
-              </Button>
-            </Link>
+          <div className="flex gap-2 items-center">
+            <AuthButton />
+            {user && (
+              <Link href="/add">
+                <Button className="bg-amber-600 hover:bg-amber-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add New Bowl
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
+
+        {!user && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-md p-4 text-amber-800 text-sm">
+            <strong>Welcome!</strong> You can browse all bowls without signing in. Sign in to add your own bowls and
+            manage your collection.
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4 text-red-700 text-sm">
@@ -157,7 +174,7 @@ export default function HomePage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
-              placeholder="Search bowls by wood type, source, or comments..."
+              placeholder="Search bowls by wood type, source, creator, or comments..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -174,7 +191,7 @@ export default function HomePage() {
             <p className="text-amber-700 mb-4">
               {bowls.length === 0 ? "Start tracking your wooden bowl creations!" : "Try adjusting your search terms"}
             </p>
-            {bowls.length === 0 && (
+            {bowls.length === 0 && user && (
               <Link href="/add">
                 <Button className="bg-amber-600 hover:bg-amber-700">
                   <Plus className="w-4 h-4 mr-2" />
@@ -190,23 +207,32 @@ export default function HomePage() {
               gridAutoFlow: "row",
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gridAutoRows: "auto",
+              gridAutoRows: "1fr", // Equal height rows
+              containIntrinsicSize: "auto 350px", // Approximate height hint for layout stability
             }}
           >
             {filteredBowls.map((bowl) => (
               <Link key={bowl.id} href={`/bowl/${bowl.id}`}>
-                <Card className="hover:shadow-lg transition-shadow cursor-pointer bg-white/80 backdrop-blur-sm group overflow-hidden">
+                <Card className="hover:shadow-lg hover:scale-[1.03] transition-all duration-300 ease-in-out cursor-pointer bg-white/80 backdrop-blur-sm group overflow-hidden h-full flex flex-col transform-gpu">
                   <CardHeader className="pb-0 p-4">
                     <CardTitle className="text-lg text-amber-900">{bowl.woodType}</CardTitle>
-                    <div className="flex items-center text-sm text-amber-700">
-                      <Calendar className="w-4 h-4 mr-1" />
-                      {new Date(bowl.dateMade).toLocaleDateString()}
+                    <div className="flex items-center justify-between text-sm text-amber-700">
+                      <div className="flex items-center">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        {new Date(bowl.dateMade).toLocaleDateString()}
+                      </div>
+                      {bowl.createdBy && (
+                        <div className="flex items-center text-xs text-amber-600">
+                          <User className="w-3 h-3 mr-1" />
+                          {bowl.createdBy}
+                        </div>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
                     {bowl.images.length > 0 ? (
                       <div className="relative w-full">
-                        <div className="w-full aspect-[4/3] relative">
+                        <div className="w-full aspect-[4/3] relative flex-shrink-0">
                           <Image
                             src={bowl.images[0]?.medium || "/placeholder.svg?height=300&width=400"}
                             alt={`${bowl.woodType} bowl`}
@@ -221,7 +247,7 @@ export default function HomePage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="p-4 space-y-2">
+                        <div className="p-4 space-y-2 flex-grow">
                           <div className="text-sm">
                             <span className="font-medium text-amber-800">Source:</span>{" "}
                             <span className="text-amber-700">{bowl.woodSource}</span>
@@ -244,7 +270,7 @@ export default function HomePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="p-4 space-y-2">
+                      <div className="p-4 space-y-2 flex-grow">
                         <div className="text-sm">
                           <span className="font-medium text-amber-800">Source:</span>{" "}
                           <span className="text-amber-700">{bowl.woodSource}</span>

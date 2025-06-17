@@ -142,15 +142,29 @@ export async function deleteImageSet(imagePaths: string[]): Promise<boolean> {
   }
 
   try {
-    console.log(`Deleting image set:`, imagePaths)
-    const { error } = await supabase.storage.from("bowl-images").remove(imagePaths)
+    // Filter out empty paths to prevent errors
+    const validPaths = imagePaths.filter((path) => path && path.trim().length > 0)
 
-    if (error) {
-      console.error("Error deleting image set:", error)
-      return false
+    if (validPaths.length === 0) {
+      console.log("No valid image paths to delete")
+      return true // Nothing to delete is still a successful operation
     }
 
-    console.log("Image set deleted successfully")
+    console.log(`Deleting ${validPaths.length} images:`, validPaths)
+
+    // Delete images in batches to avoid potential limitations
+    const batchSize = 100
+    for (let i = 0; i < validPaths.length; i += batchSize) {
+      const batch = validPaths.slice(i, i + batchSize)
+      const { error } = await supabase.storage.from("bowl-images").remove(batch)
+
+      if (error) {
+        console.error(`Error deleting batch ${i / batchSize + 1}:`, error)
+        // Continue with other batches even if one fails
+      }
+    }
+
+    console.log("Image set deletion completed")
     return true
   } catch (error) {
     console.error("Error in deleteImageSet:", error)
@@ -160,7 +174,7 @@ export async function deleteImageSet(imagePaths: string[]): Promise<boolean> {
 
 // Delete an image from Supabase Storage (legacy)
 export async function deleteImage(path: string): Promise<boolean> {
-  return deleteImageSet([path])
+  return path ? deleteImageSet([path]) : false
 }
 
 // Get all image paths for a bowl to clean up when deleting
@@ -171,24 +185,36 @@ export async function getBowlImagePaths(bowlId: string): Promise<string[]> {
   }
 
   try {
+    console.log(`Fetching image paths for bowl: ${bowlId}`)
+
     const { data, error } = await supabase
       .from("bowl_images")
-      .select("thumbnail_path, medium_path, full_path, original_path")
+      .select("thumbnail_path, medium_path, full_path, original_path, storage_path")
       .eq("bowl_id", bowlId)
 
-    if (error || !data) {
+    if (error) {
       console.error("Error getting bowl image paths:", error)
       return []
     }
 
+    if (!data || data.length === 0) {
+      console.log("No images found for this bowl")
+      return []
+    }
+
+    console.log(`Found ${data.length} image records`)
+
     const paths: string[] = []
     data.forEach((item) => {
+      // Add all available paths, including legacy storage_path
       if (item.thumbnail_path) paths.push(item.thumbnail_path)
       if (item.medium_path) paths.push(item.medium_path)
       if (item.full_path) paths.push(item.full_path)
       if (item.original_path) paths.push(item.original_path)
+      if (item.storage_path) paths.push(item.storage_path)
     })
 
+    console.log(`Collected ${paths.length} total image paths`)
     return paths
   } catch (error) {
     console.error("Error in getBowlImagePaths:", error)

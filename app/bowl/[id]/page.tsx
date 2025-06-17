@@ -1,66 +1,36 @@
 "use client"
 
-import { useState, useEffect } from "react"
+/**
+ * Bowl Details Page - READ-ONLY VIEW
+ *
+ * This page displays bowl information in a read-only format.
+ * All editing functionality has been moved to the edit page.
+ *
+ * Features:
+ * - Display bowl images in a gallery format
+ * - Show bowl metadata (wood type, source, date, finishes, comments)
+ * - Image viewer for full-screen viewing
+ * - QR code generation and sharing
+ * - Navigation to edit page for modifications (only for bowl owners)
+ */
+
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import {
-  ArrowLeft,
-  Edit,
-  Trash2,
-  Calendar,
-  MapPin,
-  QrCode,
-  Download,
-  Share2,
-  ImageIcon,
-  Star,
-  ChevronLeft,
-  ChevronRight,
-  Info,
-  GripVertical,
-  X,
-} from "lucide-react"
+import { ArrowLeft, Edit, Trash2, Calendar, MapPin, QrCode, Download, ImageIcon, Star, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib/supabase"
-import { getBowlImagePaths, deleteImageSet } from "@/lib/storage"
 import { SupabaseSetup } from "@/components/supabase-setup"
 import { useToast } from "@/hooks/use-toast"
 import { getDemoBowl } from "@/lib/demo-data"
 import ImageViewer from "@/components/image-viewer"
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core"
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import { useAuth } from "@/components/auth/auth-provider"
 
+// Type definitions for bowl data structure
 interface BowlImage {
   id: string
   thumbnail: string
@@ -69,11 +39,6 @@ interface BowlImage {
   original: string
   dimensions?: { width: number; height: number }
   fileSize?: number
-  thumbnail_path?: string
-  medium_path?: string
-  full_path?: string
-  original_path?: string
-  storage_path?: string
 }
 
 interface Bowl {
@@ -85,121 +50,35 @@ interface Bowl {
   comments: string
   images: BowlImage[]
   createdAt: string
-}
-
-interface SortableImageProps {
-  image: BowlImage
-  index: number
-  isSelected: boolean
-  onSelect: () => void
-  onDoubleClick: () => void
-  onDeleteClick: () => void
-  isDeletable: boolean
-}
-
-function SortableImage({
-  image,
-  index,
-  isSelected,
-  onSelect,
-  onDoubleClick,
-  onDeleteClick,
-  isDeletable,
-}: SortableImageProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: image.id,
-  })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 10 : 1,
-    opacity: isDragging ? 0.8 : 1,
-  }
-
-  return (
-    <div ref={setNodeRef} style={style} className="relative">
-      <button
-        onClick={onSelect}
-        onDoubleClick={onDoubleClick}
-        className={`relative rounded-lg overflow-hidden aspect-square group block w-full ${
-          isSelected ? "ring-2 ring-amber-500" : "hover:ring-2 hover:ring-amber-300"
-        } ${isDragging ? "ring-2 ring-amber-400 shadow-lg" : ""}`}
-      >
-        <Image
-          src={image.thumbnail || "/placeholder.svg?height=75&width=100"}
-          alt={`Thumbnail ${index + 1}`}
-          fill
-          className="object-contain transition-transform group-hover:scale-105"
-        />
-        {index === 0 && (
-          <div className="absolute top-1 left-1 bg-amber-500 rounded-full p-1">
-            <Star className="h-3 w-3 text-white" />
-          </div>
-        )}
-      </button>
-
-      {/* Drag handle */}
-      <div
-        {...attributes}
-        {...listeners}
-        className="absolute top-1 right-1 bg-white/70 hover:bg-white/90 rounded-full p-1 cursor-grab active:cursor-grabbing"
-      >
-        <GripVertical className="h-3 w-3 text-amber-700" />
-      </div>
-
-      {/* Delete button */}
-      {isDeletable && (
-        <button
-          type="button"
-          className="absolute bottom-1 right-1 bg-white/70 hover:bg-red-100 rounded-full p-1 transition-colors z-10"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDeleteClick()
-          }}
-          aria-label="Delete image"
-        >
-          <X className="h-3 w-3 text-red-600" />
-        </button>
-      )}
-    </div>
-  )
+  userId?: string | null
+  createdBy?: string
 }
 
 export default function BowlDetailPage() {
   const params = useParams()
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useAuth()
+
+  // Core state for bowl data and UI
   const [bowl, setBowl] = useState<Bowl | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [qrCodeUrl, setQrCodeUrl] = useState("")
   const [deleting, setDeleting] = useState(false)
-  const [savingOrder, setSavingOrder] = useState(false)
-  const [orderChanged, setOrderChanged] = useState(false)
-  const [deletingImage, setDeletingImage] = useState(false)
-  const [imageToDeleteIndex, setImageToDeleteIndex] = useState<number | null>(null)
+  const [supabaseConfigured, setSupabaseConfigured] = useState(true)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
-  const [supabaseConfigured, setSupabaseConfigured] = useState(true)
+  // Check if current user can edit this bowl
+  const canEdit = user && bowl && bowl.userId === user.id
 
-  // Set up DnD sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // 8px of movement required before drag starts
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  )
-
+  // Check Supabase configuration on component mount
   useEffect(() => {
     setSupabaseConfigured(isSupabaseConfigured())
   }, [])
 
+  // Fetch bowl data from database or demo data
   useEffect(() => {
     async function fetchBowl() {
       try {
@@ -207,16 +86,16 @@ export default function BowlDetailPage() {
           throw new Error("Supabase client not initialized")
         }
 
-        // Fetch the bowl from Supabase
+        // Fetch the bowl from Supabase database
         const { data, error } = await supabase.from("bowls").select("*").eq("id", params.id).single()
 
         if (error) {
           console.error("Error fetching bowl:", error)
 
-          // Check if this is a demo bowl
+          // Fallback to demo data if database fetch fails
           const demoBowl = getDemoBowl(params.id as string)
           if (demoBowl) {
-            // Convert demo bowl to new format
+            // Convert demo bowl format to match expected structure
             setBowl({
               ...demoBowl,
               images: demoBowl.images.map((url, index) => ({
@@ -226,6 +105,7 @@ export default function BowlDetailPage() {
                 full: url,
                 original: url,
               })),
+              createdBy: "Demo User",
             })
           }
 
@@ -233,7 +113,7 @@ export default function BowlDetailPage() {
           return
         }
 
-        // Map database bowl to frontend format
+        // Transform database bowl to frontend format
         const mappedBowl = await mapDatabaseBowlToFrontend(data)
         setBowl(mappedBowl)
       } catch (error) {
@@ -245,47 +125,79 @@ export default function BowlDetailPage() {
 
     fetchBowl()
 
-    // Generate QR code URL
+    // Generate QR code URL for sharing
     const currentUrl = typeof window !== "undefined" ? window.location.href : ""
     setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(currentUrl)}`)
   }, [params.id])
 
-  const handleDelete = async () => {
-    if (!bowl) return
+  /**
+   * Handle bowl deletion
+   * Removes bowl and all associated images from database and storage
+   */
+  const handleDelete = useCallback(async () => {
+    if (!bowl) {
+      console.error("Cannot delete: bowl is null")
+      return
+    }
+
+    if (!supabase) {
+      console.error("Cannot delete: Supabase client not initialized")
+      toast({
+        title: "Error",
+        description: "Database connection not available. Please try again later.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!canEdit) {
+      toast({
+        title: "Error",
+        description: "You don't have permission to delete this bowl.",
+        variant: "destructive",
+      })
+      return
+    }
 
     setDeleting(true)
 
     try {
-      // 1. Delete images from storage
-      const imagePaths = await getBowlImagePaths(bowl.id)
-      if (imagePaths.length > 0) {
-        await deleteImageSet(imagePaths)
+      console.log("Starting deletion process for bowl:", bowl.id)
+
+      // Delete bowl record first (cascade will delete finishes and image records)
+      const { error: deleteError } = await supabase.from("bowls").delete().eq("id", bowl.id)
+
+      if (deleteError) {
+        console.error("Error deleting bowl from database:", deleteError)
+        throw new Error(`Database error: ${deleteError.message}`)
       }
 
-      // 2. Delete bowl record (cascade will delete finishes and image records)
-      const { error } = await supabase.from("bowls").delete().eq("id", bowl.id)
+      console.log("Bowl deleted successfully from database")
 
-      if (error) {
-        throw new Error(error.message)
-      }
-
+      // Show success message
       toast({
         title: "Bowl Deleted",
         description: "The bowl has been successfully removed from your collection.",
       })
 
-      router.push("/")
+      // Navigate back to home page
+      setTimeout(() => {
+        router.push("/")
+      }, 500)
     } catch (error) {
-      console.error("Error deleting bowl:", error)
+      console.error("Error in handleDelete:", error)
+      setDeleting(false)
       toast({
         title: "Error",
         description: "There was a problem deleting the bowl. Please try again.",
         variant: "destructive",
       })
-      setDeleting(false)
     }
-  }
+  }, [bowl, router, toast, canEdit])
 
+  /**
+   * Download QR code as PNG file
+   */
   const downloadQRCode = () => {
     const link = document.createElement("a")
     link.href = qrCodeUrl
@@ -293,220 +205,15 @@ export default function BowlDetailPage() {
     link.click()
   }
 
-  const shareUrl = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: `${bowl?.woodType} Bowl`,
-        text: `Check out this ${bowl?.woodType} bowl I made!`,
-        url: window.location.href,
-      })
-    } else {
-      navigator.clipboard.writeText(window.location.href)
-      toast({
-        title: "URL Copied",
-        description: "Link copied to clipboard!",
-      })
-    }
-  }
-
+  /**
+   * Open image viewer at specific index
+   */
   const openImageViewer = (index: number) => {
     setSelectedImageIndex(index)
     setImageViewerOpen(true)
   }
 
-  const moveImage = async (currentIndex: number, direction: "left" | "right") => {
-    if (!bowl || !bowl.images || bowl.images.length <= 1) return
-
-    const newIndex =
-      direction === "left" ? Math.max(0, currentIndex - 1) : Math.min(bowl.images.length - 1, currentIndex + 1)
-
-    if (newIndex === currentIndex) return
-
-    // Create a new array with the reordered images
-    const newImages = [...bowl.images]
-    const [movedImage] = newImages.splice(currentIndex, 1)
-    newImages.splice(newIndex, 0, movedImage)
-
-    // Update the state
-    setBowl({
-      ...bowl,
-      images: newImages,
-    })
-
-    // If the selected image was moved, update the selected index
-    if (selectedImageIndex === currentIndex) {
-      setSelectedImageIndex(newIndex)
-    }
-
-    setOrderChanged(true)
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-
-    if (!bowl || !over || active.id === over.id) {
-      return
-    }
-
-    // Find the indices of the dragged and target items
-    const oldIndex = bowl.images.findIndex((img) => img.id === active.id)
-    const newIndex = bowl.images.findIndex((img) => img.id === over.id)
-
-    if (oldIndex !== -1 && newIndex !== -1) {
-      // Create a new array with the reordered images
-      const newImages = arrayMove(bowl.images, oldIndex, newIndex)
-
-      // Update the state
-      setBowl({
-        ...bowl,
-        images: newImages,
-      })
-
-      // If the selected image was moved, update the selected index
-      if (selectedImageIndex === oldIndex) {
-        setSelectedImageIndex(newIndex)
-      } else if (selectedImageIndex === newIndex) {
-        // If the selected image was the target, adjust its index
-        setSelectedImageIndex(oldIndex)
-      }
-
-      setOrderChanged(true)
-
-      // Show a toast notification
-      toast({
-        title: "Image Reordered",
-        description: "Don't forget to save your changes!",
-      })
-    }
-  }
-
-  const saveImageOrder = async () => {
-    if (!bowl || !supabase) return
-
-    setSavingOrder(true)
-
-    try {
-      // Get the image IDs in the new order
-      const imageIds = bowl.images.map((img) => img.id)
-
-      // Update each image's display_order in the database
-      for (let i = 0; i < imageIds.length; i++) {
-        const imageId = imageIds[i]
-
-        // Skip demo images (they have IDs like "demo-0")
-        if (imageId.startsWith("demo-")) continue
-
-        const { error } = await supabase.from("bowl_images").update({ display_order: i }).eq("id", imageId)
-
-        if (error) {
-          console.error(`Error updating image order for ${imageId}:`, error)
-          throw new Error(`Failed to update image order: ${error.message}`)
-        }
-      }
-
-      toast({
-        title: "Order Saved",
-        description: "The image order has been updated successfully.",
-      })
-
-      setOrderChanged(false)
-    } catch (error) {
-      console.error("Error saving image order:", error)
-      toast({
-        title: "Error",
-        description: "There was a problem saving the image order. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setSavingOrder(false)
-    }
-  }
-
-  const openDeleteDialog = (index: number) => {
-    setImageToDeleteIndex(index)
-    setDeleteDialogOpen(true)
-  }
-
-  const handleDeleteImage = async () => {
-    if (!bowl || !supabase || imageToDeleteIndex === null || !bowl.images[imageToDeleteIndex]) {
-      setDeleteDialogOpen(false)
-      return
-    }
-
-    setDeletingImage(true)
-
-    try {
-      const imageToDelete = bowl.images[imageToDeleteIndex]
-      console.log("Deleting image:", imageToDelete)
-
-      // Skip deletion for demo images
-      if (!imageToDelete.id.startsWith("demo-")) {
-        // 1. Delete image files from storage
-        const pathsToDelete: string[] = []
-
-        // Collect all paths for this image
-        if (imageToDelete.thumbnail_path) pathsToDelete.push(imageToDelete.thumbnail_path)
-        if (imageToDelete.medium_path) pathsToDelete.push(imageToDelete.medium_path)
-        if (imageToDelete.full_path) pathsToDelete.push(imageToDelete.full_path)
-        if (imageToDelete.original_path) pathsToDelete.push(imageToDelete.original_path)
-        if (imageToDelete.storage_path) pathsToDelete.push(imageToDelete.storage_path)
-
-        console.log("Paths to delete:", pathsToDelete)
-
-        // Delete from storage if we have paths
-        if (pathsToDelete.length > 0) {
-          const deleteResult = await deleteImageSet(pathsToDelete)
-          console.log("Storage deletion result:", deleteResult)
-        }
-
-        // 2. Delete image record from database
-        const { error } = await supabase.from("bowl_images").delete().eq("id", imageToDelete.id)
-
-        if (error) {
-          console.error("Database deletion error:", error)
-          throw new Error(`Failed to delete image record: ${error.message}`)
-        }
-      }
-
-      // 3. Update local state
-      const newImages = [...bowl.images]
-      newImages.splice(imageToDeleteIndex, 1)
-
-      // Update the bowl state
-      setBowl({
-        ...bowl,
-        images: newImages,
-      })
-
-      // 4. Adjust selected image index if needed
-      if (selectedImageIndex >= newImages.length) {
-        setSelectedImageIndex(Math.max(0, newImages.length - 1))
-      } else if (selectedImageIndex > imageToDeleteIndex) {
-        setSelectedImageIndex(selectedImageIndex - 1)
-      }
-
-      // 5. Show success message
-      toast({
-        title: "Image Deleted",
-        description: "The image has been removed from this bowl.",
-      })
-
-      // 6. If order changed, mark it for saving
-      setOrderChanged(true)
-    } catch (error) {
-      console.error("Error deleting image:", error)
-      toast({
-        title: "Error",
-        description: "There was a problem deleting the image. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setDeletingImage(false)
-      setDeleteDialogOpen(false)
-      setImageToDeleteIndex(null)
-    }
-  }
-
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
@@ -515,10 +222,12 @@ export default function BowlDetailPage() {
     )
   }
 
+  // Supabase not configured state
   if (!supabaseConfigured) {
     return <SupabaseSetup />
   }
 
+  // Bowl not found state
   if (!bowl) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
@@ -539,16 +248,14 @@ export default function BowlDetailPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
       <div className="container mx-auto px-4 py-8">
+        {/* Header with navigation and actions */}
         <div className="mb-6 flex items-center justify-between">
           <Link href="/" className="inline-flex items-center text-amber-700 hover:text-amber-800">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Collection
           </Link>
           <div className="flex gap-2">
-            <Button onClick={shareUrl} variant="outline" size="sm">
-              <Share2 className="w-4 h-4 mr-2" />
-              Share
-            </Button>
+            {/* QR Code button - kept intact */}
             <Dialog>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -579,10 +286,11 @@ export default function BowlDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left column - Images */}
           <div className="lg:col-span-2">
             {bowl.images.length > 0 ? (
               <div className="space-y-4">
-                {/* Main Image */}
+                {/* Main Image Display */}
                 <Card className="bg-white/80 backdrop-blur-sm">
                   <CardContent className="p-4">
                     <div className="relative group cursor-pointer" onClick={() => openImageViewer(selectedImageIndex)}>
@@ -604,83 +312,46 @@ export default function BowlDetailPage() {
                   </CardContent>
                 </Card>
 
-                {/* Thumbnail Grid with Drag and Drop */}
+                {/* Read-only Thumbnail Grid */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <h3 className="text-sm font-medium text-amber-800">Image Gallery</h3>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1">
-                              <Info className="h-4 w-4 text-amber-600" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="max-w-xs">
-                              The first image (marked with a star) will be shown on the bowl cards on the home page.
-                              Drag and drop to reorder images or use the arrow buttons.
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    {orderChanged && (
-                      <Button
-                        size="sm"
-                        onClick={saveImageOrder}
-                        disabled={savingOrder}
-                        className="bg-amber-600 hover:bg-amber-700 text-xs"
-                      >
-                        {savingOrder ? "Saving..." : "Save Order"}
-                      </Button>
+                    <h3 className="text-sm font-medium text-amber-800">Image Gallery</h3>
+                    {canEdit && (
+                      <Link href={`/bowl/${bowl.id}/edit`}>
+                        <Button size="sm" variant="outline" className="text-xs">
+                          <Edit className="w-3 h-3 mr-1" />
+                          Edit Images
+                        </Button>
+                      </Link>
                     )}
                   </div>
 
                   {bowl.images.length > 0 ? (
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                      <SortableContext items={bowl.images.map((img) => img.id)} strategy={rectSortingStrategy}>
-                        <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                          {bowl.images.map((image, index) => (
-                            <div key={image.id} className="relative group">
-                              <SortableImage
-                                image={image}
-                                index={index}
-                                isSelected={selectedImageIndex === index}
-                                onSelect={() => setSelectedImageIndex(index)}
-                                onDoubleClick={() => openImageViewer(index)}
-                                onDeleteClick={() => openDeleteDialog(index)}
-                                isDeletable={bowl.images.length > 1} // Only allow deletion if there's more than one image
-                              />
-
-                              {/* Arrow Controls (for accessibility and as alternative) */}
-                              <div className="absolute -bottom-2 left-0 right-0 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  className="h-6 w-6 p-0 bg-white/80"
-                                  onClick={() => moveImage(index, "left")}
-                                  disabled={index === 0}
-                                >
-                                  <ChevronLeft className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  className="h-6 w-6 p-0 bg-white/80"
-                                  onClick={() => moveImage(index, "right")}
-                                  disabled={index === bowl.images.length - 1}
-                                >
-                                  <ChevronRight className="h-4 w-4" />
-                                </Button>
-                              </div>
+                    <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                      {bowl.images.map((image, index) => (
+                        <button
+                          key={image.id}
+                          onClick={() => setSelectedImageIndex(index)}
+                          onDoubleClick={() => openImageViewer(index)}
+                          className={`relative rounded-lg overflow-hidden aspect-square group block w-full ${
+                            selectedImageIndex === index ? "ring-2 ring-amber-500" : "hover:ring-2 hover:ring-amber-300"
+                          }`}
+                        >
+                          <Image
+                            src={image.thumbnail || "/placeholder.svg?height=75&width=100"}
+                            alt={`Thumbnail ${index + 1}`}
+                            fill
+                            className="object-contain transition-transform group-hover:scale-105"
+                          />
+                          {/* Primary image indicator */}
+                          {index === 0 && (
+                            <div className="absolute top-1 left-1 bg-amber-500 rounded-full p-1">
+                              <Star className="h-3 w-3 text-white" />
                             </div>
-                          ))}
-                        </div>
-                      </SortableContext>
-                    </DndContext>
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   ) : (
                     <div className="text-center p-4 bg-white/50 rounded-lg">
                       <p className="text-amber-700">No images available</p>
@@ -688,8 +359,7 @@ export default function BowlDetailPage() {
                   )}
 
                   <div className="text-xs text-amber-600 mt-2 italic">
-                    Tip: Drag the grip handle to reorder images, or use the arrow buttons. Click the X to delete an
-                    image.
+                    Click thumbnails to view different images. Double-click for full-screen view.
                   </div>
                 </div>
               </div>
@@ -699,62 +369,68 @@ export default function BowlDetailPage() {
                   <div className="w-32 h-32 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <span className="text-4xl">🏺</span>
                   </div>
-                  <p className="text-amber-700">No images uploaded for this bowl</p>
+                  <p className="text-amber-700 mb-4">No images uploaded for this bowl</p>
+                  {canEdit && (
+                    <Link href={`/bowl/${bowl.id}/edit`}>
+                      <Button className="bg-amber-600 hover:bg-amber-700">
+                        <Edit className="w-4 h-4 mr-2" />
+                        Add Images
+                      </Button>
+                    </Link>
+                  )}
                 </CardContent>
               </Card>
             )}
           </div>
 
+          {/* Right column - Bowl Information */}
           <div className="space-y-6">
             <Card className="bg-white/80 backdrop-blur-sm">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-2xl text-amber-900">{bowl.woodType}</CardTitle>
-                <div className="flex gap-2">
-                  <Link href={`/bowl/${bowl.id}/edit`}>
-                    <Button size="sm" variant="outline">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                  </Link>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700">
-                        <Trash2 className="w-4 h-4" />
+                {canEdit && (
+                  <div className="flex gap-2">
+                    <Link href={`/bowl/${bowl.id}/edit`}>
+                      <Button size="sm" variant="outline">
+                        <Edit className="w-4 h-4" />
                       </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Bowl</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete this bowl? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleDelete}
-                          className="bg-red-600 hover:bg-red-700"
-                          disabled={deleting}
-                        >
-                          {deleting ? "Deleting..." : "Delete"}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
+                    </Link>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => setDeleteDialogOpen(true)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Made by */}
+                {bowl.createdBy && (
+                  <div className="flex items-center text-amber-700">
+                    <User className="w-4 h-4 mr-2" />
+                    <span className="font-medium">Made by:</span>
+                    <span className="ml-2">{bowl.createdBy}</span>
+                  </div>
+                )}
+
+                {/* Date Made */}
                 <div className="flex items-center text-amber-700">
                   <Calendar className="w-4 h-4 mr-2" />
                   <span className="font-medium">Made:</span>
                   <span className="ml-2">{new Date(bowl.dateMade).toLocaleDateString()}</span>
                 </div>
 
+                {/* Wood Source */}
                 <div className="flex items-center text-amber-700">
                   <MapPin className="w-4 h-4 mr-2" />
                   <span className="font-medium">Source:</span>
                   <span className="ml-2">{bowl.woodSource}</span>
                 </div>
 
+                {/* Finishes */}
                 {bowl.finishes.length > 0 && (
                   <div>
                     <span className="font-medium text-amber-800 block mb-2">Finishes Used:</span>
@@ -768,6 +444,7 @@ export default function BowlDetailPage() {
                   </div>
                 )}
 
+                {/* Comments */}
                 {bowl.comments && (
                   <div>
                     <span className="font-medium text-amber-800 block mb-2">Comments:</span>
@@ -775,6 +452,7 @@ export default function BowlDetailPage() {
                   </div>
                 )}
 
+                {/* Creation timestamp */}
                 <div className="pt-4 border-t text-xs text-amber-600">
                   Created: {new Date(bowl.createdAt).toLocaleString()}
                 </div>
@@ -783,7 +461,7 @@ export default function BowlDetailPage() {
           </div>
         </div>
 
-        {/* Image Viewer */}
+        {/* Full-screen Image Viewer */}
         <ImageViewer
           images={bowl.images}
           initialIndex={selectedImageIndex}
@@ -791,32 +469,37 @@ export default function BowlDetailPage() {
           onClose={() => setImageViewerOpen(false)}
         />
 
-        {/* Delete Image Dialog */}
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Image</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete this image? This action cannot be undone.
-                {imageToDeleteIndex === 0 && (
-                  <p className="mt-2 text-amber-600 font-medium">
-                    This is your primary image that appears on the home page.
-                  </p>
-                )}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDeleteImage}
-                className="bg-red-600 hover:bg-red-700"
-                disabled={deletingImage}
-              >
-                {deletingImage ? "Deleting..." : "Delete Image"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Custom Delete Dialog - only shown if user can edit */}
+        {canEdit && (
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Delete Bowl</DialogTitle>
+              </DialogHeader>
+              <div className="py-4">
+                <p className="text-gray-700">
+                  Are you sure you want to delete this bowl? This action cannot be undone and will remove all associated
+                  images and data.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    handleDelete()
+                    setDeleteDialogOpen(false)
+                  }}
+                  disabled={deleting}
+                >
+                  {deleting ? "Deleting..." : "Delete Bowl"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </div>
   )

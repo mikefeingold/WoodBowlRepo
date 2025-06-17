@@ -19,6 +19,15 @@ export type Bowl = {
   wood_source: string
   date_made: string
   comments: string | null
+  user_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type Profile = {
+  id: string
+  email: string | null
+  full_name: string | null
   created_at: string
   updated_at: string
 }
@@ -80,6 +89,20 @@ export const mapDatabaseBowlToFrontend = async (bowl: Bowl) => {
     .eq("bowl_id", bowl.id)
     .order("display_order", { ascending: true })
 
+  // Get creator profile if user_id exists
+  let creatorName = "Unknown"
+  if (bowl.user_id) {
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", bowl.user_id)
+      .single()
+
+    if (profileData) {
+      creatorName = profileData.full_name || profileData.email || "Unknown"
+    }
+  }
+
   // Process images to get the best available URLs
   const processedImages =
     imagesData?.map((img) => {
@@ -104,5 +127,7 @@ export const mapDatabaseBowlToFrontend = async (bowl: Bowl) => {
     finishes: finishesData?.map((f) => f.finish_name) || [],
     images: processedImages,
     createdAt: bowl.created_at,
+    userId: bowl.user_id,
+    createdBy: creatorName,
   }
 }

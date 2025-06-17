@@ -1,10 +1,17 @@
 "use client"
 
+/**
+ * Add Bowl Page Component - REQUIRES AUTHENTICATION
+ *
+ * This page allows authenticated users to create new bowl records.
+ * Bowls are automatically associated with the logged-in user.
+ */
+
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, X, Bug, Camera } from "lucide-react"
+import { ArrowLeft, X, Bug, Camera, AlertCircle, CheckCircle } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { supabase, isSupabaseConfigured } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { SupabaseSetup } from "@/components/supabase-setup"
@@ -19,25 +27,72 @@ import EnhancedImageUpload, { type ProcessedImageData } from "@/components/enhan
 import { uploadImageSet } from "@/lib/storage"
 import { processImage } from "@/lib/image-processing"
 import { cameraManager } from "@/lib/pwa-utils"
+import { useAuth } from "@/components/auth/auth-provider"
+
+// Form data interface for type safety
+interface FormData {
+  woodType: string
+  woodSource: string
+  dateMade: string
+  comments: string
+}
+
+// Storage keys for persisting form data
+const FORM_DATA_KEY = "addBowlFormData"
+const FINISHES_KEY = "addBowlFinishes"
 
 export default function AddBowlPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const [formData, setFormData] = useState({
+  const { user, loading: authLoading } = useAuth()
+
+  // Use ref to track initialization state
+  const initializedRef = useRef(false)
+
+  // Form state for bowl basic information - now with persistence
+  const [formData, setFormData] = useState<FormData>({
     woodType: "",
     woodSource: "",
-    dateMade: new Date().toISOString().split("T")[0], // Default to today
+    dateMade: new Date().toISOString().split("T")[0], // Default to today's date
     comments: "",
   })
-  const [finishes, setFinishes] = useState<string[]>([])
-  const [newFinish, setNewFinish] = useState("")
-  const [images, setImages] = useState<ProcessedImageData[]>([])
-  const [loading, setLoading] = useState(false)
-  const [debugInfo, setDebugInfo] = useState<string | null>(null)
-  const [showDebug, setShowDebug] = useState(false)
-  const [hasCamera, setHasCamera] = useState(false)
 
+  // State for finishes (array of strings) - now with persistence
+  const [finishes, setFinishes] = useState<string[]>([])
+  const [newFinish, setNewFinish] = useState("") // Temporary state for adding new finish
+
+  // State for images with processing metadata
+  const [images, setImages] = useState<ProcessedImageData[]>([])
+
+  // UI state
+  const [loading, setLoading] = useState(false) // Form submission state
+  const [debugInfo, setDebugInfo] = useState<string | null>(null) // Debug information
+  const [showDebug, setShowDebug] = useState(false) // Toggle debug panel
+  const [hasCamera, setHasCamera] = useState(false) // Camera availability
+
+  // New state for handling saved data restoration
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false)
+  const [savedDataToRestore, setSavedDataToRestore] = useState<{
+    formData: FormData | null
+    finishes: string[]
+  } | null>(null)
+
+  // Redirect to home if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to add bowls to your collection.",
+        variant: "destructive",
+      })
+      router.push("/")
+    }
+  }, [user, authLoading, router, toast])
+
+  /**
+   * Check if Supabase is configured and show setup screen if not
+   */
   const checkSupabaseConfiguration = () => {
     if (!isSupabaseConfigured()) {
       return <SupabaseSetup />
@@ -45,41 +100,142 @@ export default function AddBowlPage() {
     return null
   }
 
+  /**
+   * Save form data to localStorage for persistence
+   */
+  const saveFormDataToStorage = (data: FormData, finishesData: string[]) => {
+    try {
+      localStorage.setItem(FORM_DATA_KEY, JSON.stringify(data))
+      localStorage.setItem(FINISHES_KEY, JSON.stringify(finishesData))
+    } catch (error) {
+      console.warn("Failed to save form data to localStorage:", error)
+    }
+  }
+
+  /**
+   * Load form data from localStorage
+   */
+  const loadFormDataFromStorage = (): { formData: FormData | null; finishes: string[] } => {
+    try {
+      const savedFormData = localStorage.getItem(FORM_DATA_KEY)
+      const savedFinishes = localStorage.getItem(FINISHES_KEY)
+
+      return {
+        formData: savedFormData ? JSON.parse(savedFormData) : null,
+        finishes: savedFinishes ? JSON.parse(savedFinishes) : [],
+      }
+    } catch (error) {
+      console.warn("Failed to load form data from localStorage:", error)
+      return { formData: null, finishes: [] }
+    }
+  }
+
+  /**
+   * Clear form data from localStorage
+   */
+  const clearFormDataFromStorage = () => {
+    try {
+      localStorage.removeItem(FORM_DATA_KEY)
+      localStorage.removeItem(FINISHES_KEY)
+    } catch (error) {
+      console.warn("Failed to clear form data from localStorage:", error)
+    }
+  }
+
+  /**
+   * Check if form has any meaningful data
+   */
+  const hasFormData = (data: FormData, finishesData: string[]) => {
+    return Boolean(
+      data && (data.woodType.trim() || data.woodSource.trim() || data.comments.trim() || finishesData.length > 0),
+    )
+  }
+
+  /**
+   * Restore saved form data
+   */
+  const restoreSavedData = () => {
+    if (savedDataToRestore?.formData) {
+      setFormData(savedDataToRestore.formData)
+      setFinishes(savedDataToRestore.finishes)
+      setShowRestorePrompt(false)
+      setSavedDataToRestore(null)
+
+      toast({
+        title: "Form Data Restored",
+        description: "Your previously entered information has been restored.",
+      })
+    }
+  }
+
+  /**
+   * Dismiss the restore prompt and clear saved data
+   */
+  const dismissRestorePrompt = () => {
+    setShowRestorePrompt(false)
+    setSavedDataToRestore(null)
+    clearFormDataFromStorage()
+  }
+
+  // Effect to initialize component state and handle camera return
+  // This runs only once on component mount
   useEffect(() => {
-    // Check camera availability
+    // Check if device has camera capability
     cameraManager.hasCamera().then(setHasCamera)
 
-    // Load captured images from camera if coming from camera page
-    const fromCamera = searchParams.get("from") === "camera"
-    if (fromCamera) {
-      loadCapturedImages()
-    }
-  }, [searchParams])
+    // Only run initialization logic once
+    if (!initializedRef.current) {
+      initializedRef.current = true
 
+      // Check if returning from camera
+      const fromCamera = searchParams.get("from") === "camera"
+
+      // Load any previously saved form data
+      const savedData = loadFormDataFromStorage()
+
+      if (fromCamera) {
+        // If returning from camera, restore form data and load images
+        if (savedData.formData) {
+          setFormData(savedData.formData)
+          setFinishes(savedData.finishes)
+        }
+        loadCapturedImages()
+      } else if (savedData.formData && hasFormData(savedData.formData, savedData.finishes)) {
+        // If there's meaningful saved data but not from camera, show restore prompt
+        setSavedDataToRestore(savedData)
+        setShowRestorePrompt(true)
+      }
+    }
+  }, [searchParams]) // Only depend on searchParams
+
+  /**
+   * Load images captured from the camera page
+   * Images are stored in sessionStorage as base64 strings
+   */
   const loadCapturedImages = async () => {
     try {
       const capturedImagesJson = sessionStorage.getItem("capturedImages")
       if (capturedImagesJson) {
         const capturedImages: string[] = JSON.parse(capturedImagesJson)
-
         const processedImages: ProcessedImageData[] = []
 
+        // Process each captured image
         for (let i = 0; i < capturedImages.length; i++) {
           const base64 = capturedImages[i]
 
-          // Convert base64 to File object
+          // Convert base64 to File object for processing
           const response = await fetch(base64)
           const blob = await response.blob()
           const file = new File([blob], `camera-${i + 1}.jpg`, { type: "image/jpeg" })
 
-          // Process the image
+          // Process the image (resize and compress to multiple sizes)
           const processed = await processImage(file)
 
           processedImages.push({
             id: `camera-${Date.now()}-${i}`,
             file,
             processed,
-            dimensions: { width: 1920, height: 1080 }, // Estimate
+            dimensions: { width: 1920, height: 1080 }, // Estimate for camera images
             fileSize: blob.size,
             isNew: true,
           })
@@ -87,7 +243,7 @@ export default function AddBowlPage() {
 
         setImages(processedImages)
 
-        // Clear from session storage
+        // Clear from session storage to prevent reloading
         sessionStorage.removeItem("capturedImages")
 
         toast({
@@ -105,26 +261,80 @@ export default function AddBowlPage() {
     }
   }
 
+  /**
+   * Handle form input changes with automatic persistence
+   * Updates the formData state with new values and saves to localStorage
+   */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData({
+    const updatedFormData = {
       ...formData,
       [e.target.name]: e.target.value,
-    })
+    }
+    setFormData(updatedFormData)
+
+    // Auto-save form data to localStorage
+    saveFormDataToStorage(updatedFormData, finishes)
   }
 
+  /**
+   * Add a new finish to the finishes array with persistence
+   * Prevents duplicates and trims whitespace
+   */
   const addFinish = () => {
     if (newFinish.trim() && !finishes.includes(newFinish.trim())) {
-      setFinishes([...finishes, newFinish.trim()])
+      const updatedFinishes = [...finishes, newFinish.trim()]
+      setFinishes(updatedFinishes)
       setNewFinish("")
+
+      // Auto-save finishes to localStorage
+      saveFormDataToStorage(formData, updatedFinishes)
     }
   }
 
+  /**
+   * Remove a finish from the finishes array with persistence
+   */
   const removeFinish = (finish: string) => {
-    setFinishes(finishes.filter((f) => f !== finish))
+    const updatedFinishes = finishes.filter((f) => f !== finish)
+    setFinishes(updatedFinishes)
+
+    // Auto-save finishes to localStorage
+    saveFormDataToStorage(formData, updatedFinishes)
   }
 
+  /**
+   * Handle camera button click - save current form state before navigating
+   */
+  const handleCameraClick = () => {
+    // Save current form data before going to camera
+    saveFormDataToStorage(formData, finishes)
+
+    // Navigate to camera page
+    router.push("/camera")
+  }
+
+  /**
+   * Handle form submission
+   *
+   * Process:
+   * 1. Validate form data
+   * 2. Insert bowl record into database with user_id
+   * 3. Insert finishes into bowl_finishes table
+   * 4. Upload images to storage and insert records
+   * 5. Clear saved form data and navigate to bowl detail page on success
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "You must be signed in to add a bowl.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setLoading(true)
     setDebugInfo(null)
 
@@ -133,15 +343,16 @@ export default function AddBowlPage() {
         throw new Error("Supabase client not initialized")
       }
 
-      // Log the data we're about to insert
+      // Log the data we're about to insert for debugging
       console.log("Inserting bowl with data:", {
         wood_type: formData.woodType,
         wood_source: formData.woodSource,
         date_made: formData.dateMade,
         comments: formData.comments || null,
+        user_id: user.id,
       })
 
-      // 1. Insert the bowl record
+      // Step 1: Insert the main bowl record with user_id
       const { data: bowlData, error: bowlError } = await supabase
         .from("bowls")
         .insert({
@@ -149,6 +360,7 @@ export default function AddBowlPage() {
           wood_source: formData.woodSource,
           date_made: formData.dateMade,
           comments: formData.comments || null,
+          user_id: user.id,
         })
         .select()
 
@@ -163,7 +375,7 @@ export default function AddBowlPage() {
       const bowlId = bowlData[0].id
       console.log("Bowl created with ID:", bowlId)
 
-      // 2. Insert finishes
+      // Step 2: Insert finishes if any were specified
       if (finishes.length > 0) {
         const finishesData = finishes.map((finish) => ({
           bowl_id: bowlId,
@@ -179,22 +391,24 @@ export default function AddBowlPage() {
         }
       }
 
-      // 3. Upload images and insert image records
+      // Step 3: Upload images and create image records
       if (images.length > 0) {
         for (let i = 0; i < images.length; i++) {
           console.log(`Uploading image ${i + 1} of ${images.length}`)
+
+          // Upload image set (thumbnail, medium, full, original) to storage
           const uploadResult = await uploadImageSet(images[i].processed, bowlId)
 
           if (uploadResult) {
             console.log("Image set uploaded:", uploadResult)
 
-            // Use medium URL and path for the legacy fields to maintain backward compatibility
+            // Insert image record with all size variants
             const { error: imageError } = await supabase.from("bowl_images").insert({
               bowl_id: bowlId,
-              // Add these fields to satisfy the NOT NULL constraint
+              // Legacy fields for backward compatibility
               image_url: uploadResult.medium.url,
               storage_path: uploadResult.medium.path,
-              // New fields
+              // New multi-size fields
               thumbnail_url: uploadResult.thumbnail.url,
               thumbnail_path: uploadResult.thumbnail.path,
               medium_url: uploadResult.medium.url,
@@ -205,7 +419,7 @@ export default function AddBowlPage() {
               original_path: uploadResult.original.path,
               file_size: images[i].fileSize,
               original_dimensions: images[i].dimensions,
-              display_order: i,
+              display_order: i, // First image (index 0) becomes primary
             })
 
             if (imageError) {
@@ -218,6 +432,9 @@ export default function AddBowlPage() {
           }
         }
       }
+
+      // Success! Clear saved form data and show toast
+      clearFormDataFromStorage()
 
       toast({
         title: "Bowl Added",
@@ -238,26 +455,74 @@ export default function AddBowlPage() {
     }
   }
 
+  /**
+   * Handle cancel action - clear saved data and navigate back
+   */
+  const handleCancel = () => {
+    const hasUnsavedData =
+      formData.woodType || formData.woodSource || formData.comments || finishes.length > 0 || images.length > 0
+
+    if (hasUnsavedData) {
+      const shouldDiscard = window.confirm("You have unsaved changes. Are you sure you want to discard them?")
+      if (!shouldDiscard) {
+        return
+      }
+    }
+
+    clearFormDataFromStorage()
+    router.push("/")
+  }
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    )
+  }
+
+  // Don't render if user is not authenticated
+  if (!user) {
+    return null
+  }
+
+  // Show Supabase setup screen if not configured
   const supabaseSetupComponent = checkSupabaseConfiguration()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
       <div className="container mx-auto px-4 py-8">
         {supabaseSetupComponent}
+
+        {/* Restore Data Prompt - Custom UI instead of browser dialog */}
+        {showRestorePrompt && (
+          <Alert className="mb-6 max-w-2xl mx-auto border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="flex items-center justify-between">
+              <span className="text-amber-800">
+                You have unsaved form data from a previous session. Would you like to restore it?
+              </span>
+              <div className="flex gap-2 ml-4">
+                <Button size="sm" onClick={restoreSavedData} className="bg-amber-600 hover:bg-amber-700">
+                  Restore
+                </Button>
+                <Button size="sm" variant="outline" onClick={dismissRestorePrompt}>
+                  Discard
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Header with navigation and action buttons */}
         <div className="mb-6 flex justify-between items-center">
           <Link href="/" className="inline-flex items-center text-amber-700 hover:text-amber-800">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Collection
           </Link>
           <div className="flex gap-2">
-            {hasCamera && (
-              <Link href="/camera">
-                <Button variant="outline" size="sm">
-                  <Camera className="w-4 h-4 mr-2" />
-                  Camera
-                </Button>
-              </Link>
-            )}
+            {/* Debug tools link */}
             <Link href="/debug">
               <Button variant="outline" size="sm">
                 <Bug className="w-4 h-4 mr-2" />
@@ -267,12 +532,21 @@ export default function AddBowlPage() {
           </div>
         </div>
 
+        {/* Main form card */}
         <Card className="max-w-2xl mx-auto bg-white/80 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-2xl text-amber-900">Add New Bowl</CardTitle>
+            {/* Show indicator if form data is being auto-saved */}
+            {(formData.woodType || formData.woodSource || finishes.length > 0) && (
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle className="w-4 h-4" />
+                <span>Form data is automatically saved as you type</span>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Basic bowl information - wood type and source */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="woodType">Wood Type *</Label>
@@ -298,6 +572,7 @@ export default function AddBowlPage() {
                 </div>
               </div>
 
+              {/* Date made */}
               <div>
                 <Label htmlFor="dateMade">Date Made *</Label>
                 <Input
@@ -310,6 +585,7 @@ export default function AddBowlPage() {
                 />
               </div>
 
+              {/* Finishes section - dynamic array of finish names */}
               <div>
                 <Label>Finishes Used</Label>
                 <div className="flex gap-2 mb-2">
@@ -323,6 +599,7 @@ export default function AddBowlPage() {
                     Add
                   </Button>
                 </div>
+                {/* Display current finishes as removable badges */}
                 <div className="flex flex-wrap gap-2">
                   {finishes.map((finish, index) => (
                     <Badge key={index} variant="secondary" className="flex items-center gap-1">
@@ -333,6 +610,7 @@ export default function AddBowlPage() {
                 </div>
               </div>
 
+              {/* Comments section */}
               <div>
                 <Label htmlFor="comments">Comments</Label>
                 <Textarea
@@ -345,30 +623,39 @@ export default function AddBowlPage() {
                 />
               </div>
 
+              {/* Image upload section */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label>Images</Label>
+                  {/* Camera button - preserves form data */}
                   {hasCamera && (
-                    <Link href="/camera">
-                      <Button type="button" variant="outline" size="sm">
-                        <Camera className="w-4 h-4 mr-2" />
-                        Use Camera
-                      </Button>
-                    </Link>
+                    <Button type="button" variant="outline" size="sm" onClick={handleCameraClick}>
+                      <Camera className="w-4 h-4 mr-2" />
+                      Use Camera
+                    </Button>
                   )}
                 </div>
+                {/* Enhanced image upload component with processing */}
                 <EnhancedImageUpload images={images} onImagesChange={setImages} maxImages={10} disabled={loading} />
+                {images.length > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-green-600 mt-2">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>
+                      {images.length} image{images.length !== 1 ? "s" : ""} ready to upload
+                    </span>
+                  </div>
+                )}
               </div>
 
+              {/* Form action buttons */}
               <div className="flex gap-4">
                 <Button type="submit" disabled={loading} className="bg-amber-600 hover:bg-amber-700">
                   {loading ? "Saving..." : "Save Bowl"}
                 </Button>
-                <Link href="/">
-                  <Button type="button" variant="outline">
-                    Cancel
-                  </Button>
-                </Link>
+                <Button type="button" variant="outline" onClick={handleCancel}>
+                  Cancel
+                </Button>
+                {/* Debug toggle button */}
                 <Button
                   type="button"
                   variant="outline"
@@ -381,6 +668,8 @@ export default function AddBowlPage() {
               </div>
             </form>
           </CardContent>
+
+          {/* Debug information panel - only shown when toggled on */}
           {debugInfo && showDebug && (
             <CardFooter className="bg-gray-50 border-t">
               <div className="w-full">

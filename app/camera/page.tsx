@@ -1,12 +1,27 @@
 "use client"
 
+/**
+ * Camera Page Component
+ *
+ * This page provides camera functionality for capturing bowl images:
+ * - Live camera preview with front/back camera switching
+ * - Photo capture with flash effect
+ * - Multiple photo capture and preview
+ * - Integration with add bowl form (preserves form data)
+ *
+ * Features:
+ * - Camera availability detection
+ * - Error handling for camera access
+ * - Image preview with deletion capability
+ * - Seamless integration with form workflow
+ */
+
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Camera, X, RotateCcw, ArrowLeft, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import Link from "next/link"
 import Image from "next/image"
 import { cameraManager } from "@/lib/pwa-utils"
 
@@ -14,6 +29,8 @@ export default function CameraPage() {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Camera state
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [capturedImages, setCapturedImages] = useState<string[]>([])
   const [isCapturing, setIsCapturing] = useState(false)
@@ -22,6 +39,7 @@ export default function CameraPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Initialize camera on component mount
   useEffect(() => {
     checkCameraAvailability()
     return () => {
@@ -29,6 +47,9 @@ export default function CameraPage() {
     }
   }, [])
 
+  /**
+   * Check if camera is available and start it if possible
+   */
   const checkCameraAvailability = async () => {
     try {
       const available = await cameraManager.hasCamera()
@@ -46,6 +67,9 @@ export default function CameraPage() {
     }
   }
 
+  /**
+   * Start the camera stream with current facing mode
+   */
   const startCamera = async () => {
     try {
       setError(null)
@@ -73,6 +97,9 @@ export default function CameraPage() {
     }
   }
 
+  /**
+   * Stop the camera stream and clean up resources
+   */
   const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
@@ -80,12 +107,19 @@ export default function CameraPage() {
     }
   }
 
+  /**
+   * Switch between front and back camera
+   */
   const switchCamera = async () => {
     stopCamera()
     setFacingMode((prev) => (prev === "user" ? "environment" : "user"))
     setTimeout(startCamera, 100)
   }
 
+  /**
+   * Capture a photo from the video stream
+   * Adds flash effect and stores image as base64
+   */
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return
 
@@ -102,11 +136,11 @@ export default function CameraPage() {
     // Draw video frame to canvas
     ctx.drawImage(video, 0, 0)
 
-    // Convert to base64
+    // Convert to base64 with good quality
     const imageData = canvas.toDataURL("image/jpeg", 0.8)
     setCapturedImages((prev) => [...prev, imageData])
 
-    // Flash effect
+    // Create flash effect
     if (typeof document !== "undefined") {
       const flashDiv = document.createElement("div")
       flashDiv.style.position = "fixed"
@@ -130,18 +164,45 @@ export default function CameraPage() {
     }
   }
 
+  /**
+   * Remove a captured image from the preview
+   */
   const removeImage = (index: number) => {
     setCapturedImages((prev) => prev.filter((_, i) => i !== index))
   }
 
+  /**
+   * Proceed with captured images - store in sessionStorage and return to add page
+   * The add page will automatically load these images and restore form data
+   */
   const proceedWithImages = () => {
-    // Store images in sessionStorage and navigate to add page
+    // Store images in sessionStorage for the add page to pick up
     if (typeof window !== "undefined") {
       sessionStorage.setItem("capturedImages", JSON.stringify(capturedImages))
     }
+
+    // Navigate back to add page with camera flag
     router.push("/add?from=camera")
   }
 
+  /**
+   * Go back to add page without saving images
+   */
+  const goBackToAdd = () => {
+    // If there are captured images, confirm before discarding
+    if (capturedImages.length > 0) {
+      const shouldDiscard = window.confirm(
+        `You have ${capturedImages.length} captured image${capturedImages.length !== 1 ? "s" : ""}. Are you sure you want to discard them?`,
+      )
+      if (!shouldDiscard) {
+        return
+      }
+    }
+
+    router.push("/add")
+  }
+
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-4">
@@ -153,6 +214,7 @@ export default function CameraPage() {
     )
   }
 
+  // Error state - no camera or access denied
   if (!hasCamera || error) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-4">
@@ -163,9 +225,9 @@ export default function CameraPage() {
             <p className="text-gray-600 mb-4">
               {error || "Your device doesn't have a camera or camera access is not supported."}
             </p>
-            <Link href="/add">
-              <Button className="w-full">Continue Without Camera</Button>
-            </Link>
+            <Button onClick={goBackToAdd} className="w-full">
+              Continue Without Camera
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -174,20 +236,24 @@ export default function CameraPage() {
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Header */}
+      {/* Header with navigation and status */}
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/50 to-transparent p-4">
         <div className="flex items-center justify-between">
-          <Link href="/add">
-            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-          </Link>
+          <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={goBackToAdd}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
 
           <Badge variant="secondary" className="bg-white/20 text-white">
-            {capturedImages.length} photos
+            {capturedImages.length} photo{capturedImages.length !== 1 ? "s" : ""}
           </Badge>
 
-          <Button variant="ghost" size="icon" onClick={switchCamera} className="text-white hover:bg-white/20">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={switchCamera}
+            className="text-white hover:bg-white/20"
+            title="Switch camera"
+          >
             <RotateCcw className="w-5 h-5" />
           </Button>
         </div>
@@ -208,13 +274,20 @@ export default function CameraPage() {
               onClick={capturePhoto}
               disabled={isCapturing}
               className="w-16 h-16 rounded-full bg-white hover:bg-gray-200 text-black border-4 border-white/50"
+              title="Capture photo"
             >
               <Camera className="w-8 h-8" />
             </Button>
 
-            {/* Proceed Button */}
+            {/* Proceed Button - only show if images captured */}
             {capturedImages.length > 0 && (
-              <Button variant="ghost" size="icon" onClick={proceedWithImages} className="text-white hover:bg-white/20">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={proceedWithImages}
+                className="text-white hover:bg-white/20"
+                title={`Continue with ${capturedImages.length} photo${capturedImages.length !== 1 ? "s" : ""}`}
+              >
                 <Check className="w-6 h-6" />
               </Button>
             )}
@@ -241,6 +314,7 @@ export default function CameraPage() {
                     size="icon"
                     onClick={() => removeImage(index)}
                     className="absolute -top-2 -right-2 w-6 h-6 rounded-full"
+                    title="Delete photo"
                   >
                     <X className="w-3 h-3" />
                   </Button>
@@ -258,6 +332,7 @@ export default function CameraPage() {
         </div>
       </div>
 
+      {/* Error overlay */}
       {error && <div className="absolute top-20 left-4 right-4 bg-red-500/90 text-white p-3 rounded-lg">{error}</div>}
     </div>
   )

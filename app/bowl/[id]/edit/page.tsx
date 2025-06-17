@@ -1,10 +1,25 @@
 "use client"
 
+/**
+ * Bowl Edit Page - EDITING INTERFACE
+ *
+ * This page provides full editing capabilities for bowl data and images.
+ * All image management functionality has been moved here from the details page.
+ *
+ * Features:
+ * - Edit bowl metadata (wood type, source, date, finishes, comments)
+ * - Upload new images with drag-and-drop support
+ * - Reorder images using drag-and-drop
+ * - Delete individual images
+ * - Image preview with editing controls
+ * - Form validation and error handling
+ */
+
 import type React from "react"
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Upload, X, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Upload, X, AlertTriangle, Info, GripVertical, Star, ChevronLeft, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
@@ -14,11 +29,42 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib/supabase"
 import { uploadImage, deleteImage } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
 import { SupabaseSetup } from "@/components/supabase-setup"
 
+// Drag and drop imports for image reordering
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+
+// Type definitions
 interface Bowl {
   id: string
   woodType: string
@@ -37,10 +83,88 @@ interface ImageData {
   path?: string
 }
 
+interface SortableImageProps {
+  image: ImageData
+  index: number
+  isSelected: boolean
+  onSelect: () => void
+  onDeleteClick: () => void
+  isDeletable: boolean
+}
+
+/**
+ * Sortable Image Component
+ * Handles drag-and-drop functionality for individual images
+ */
+function SortableImage({ image, index, isSelected, onSelect, onDeleteClick, isDeletable }: SortableImageProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `image-${index}`, // Use index as ID since we don't have stable IDs for new images
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 1,
+    opacity: isDragging ? 0.8 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      <button
+        onClick={onSelect}
+        className={`relative rounded-lg overflow-hidden aspect-square group block w-full ${
+          isSelected ? "ring-2 ring-amber-500" : "hover:ring-2 hover:ring-amber-300"
+        } ${isDragging ? "ring-2 ring-amber-400 shadow-lg" : ""}`}
+      >
+        <Image
+          src={image.url || "/placeholder.svg?height=150&width=200"}
+          alt={`Bowl image ${index + 1}`}
+          fill
+          className="object-cover transition-transform group-hover:scale-105"
+        />
+        {/* Primary image indicator */}
+        {index === 0 && (
+          <div className="absolute top-1 left-1 bg-amber-500 rounded-full p-1">
+            <Star className="h-3 w-3 text-white" />
+          </div>
+        )}
+        {/* New image indicator */}
+        {image.isNew && <Badge className="absolute bottom-1 left-1 text-xs bg-blue-500">New</Badge>}
+      </button>
+
+      {/* Drag handle */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute top-1 right-1 bg-white/70 hover:bg-white/90 rounded-full p-1 cursor-grab active:cursor-grabbing"
+      >
+        <GripVertical className="h-3 w-3 text-amber-700" />
+      </div>
+
+      {/* Delete button */}
+      {isDeletable && (
+        <button
+          type="button"
+          className="absolute bottom-1 right-1 bg-white/70 hover:bg-red-100 rounded-full p-1 transition-colors z-10"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDeleteClick()
+          }}
+          aria-label="Delete image"
+        >
+          <X className="h-3 w-3 text-red-600" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function EditBowlPage() {
   const params = useParams()
   const router = useRouter()
   const { toast } = useToast()
+
+  // Form data state
   const [formData, setFormData] = useState({
     woodType: "",
     woodSource: "",
@@ -50,17 +174,40 @@ export default function EditBowlPage() {
   const [finishes, setFinishes] = useState<string[]>([])
   const [newFinish, setNewFinish] = useState("")
   const [images, setImages] = useState<ImageData[]>([])
+
+  // UI state
   const [loading, setLoading] = useState(false)
   const [bowl, setBowl] = useState<Bowl | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [uploadError, setUploadError] = useState<string | null>(null)
-
   const [supabaseConfigured, setSupabaseConfigured] = useState(false)
 
+  // Image editing state
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0)
+  const [savingOrder, setSavingOrder] = useState(false)
+  const [orderChanged, setOrderChanged] = useState(false)
+  const [deletingImage, setDeletingImage] = useState(false)
+  const [imageToDeleteIndex, setImageToDeleteIndex] = useState<number | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
+  // Set up drag-and-drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px of movement required before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+
+  // Check Supabase configuration
   useEffect(() => {
     setSupabaseConfigured(isSupabaseConfigured())
   }, [])
 
+  // Fetch existing bowl data
   useEffect(() => {
     async function fetchBowl() {
       if (!supabaseConfigured) return
@@ -93,7 +240,7 @@ export default function EditBowlPage() {
 
         setFinishes(mappedBowl.finishes)
 
-        // Get image data with IDs and paths
+        // Get image data with IDs and paths for editing
         const { data: imageData } = await supabase
           .from("bowl_images")
           .select("*")
@@ -124,6 +271,9 @@ export default function EditBowlPage() {
     return <SupabaseSetup />
   }
 
+  /**
+   * Handle form input changes
+   */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({
       ...formData,
@@ -131,6 +281,9 @@ export default function EditBowlPage() {
     })
   }
 
+  /**
+   * Add a new finish to the list
+   */
   const addFinish = () => {
     if (newFinish.trim() && !finishes.includes(newFinish.trim())) {
       setFinishes([...finishes, newFinish.trim()])
@@ -138,27 +291,34 @@ export default function EditBowlPage() {
     }
   }
 
+  /**
+   * Remove a finish from the list
+   */
   const removeFinish = (finish: string) => {
     setFinishes(finishes.filter((f) => f !== finish))
   }
 
+  /**
+   * Handle new image uploads
+   */
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files) {
       setUploadError(null)
       Array.from(files).forEach((file) => {
-        // Check file size (limit to 10MB)
+        // Validate file size (limit to 10MB)
         if (file.size > 10 * 1024 * 1024) {
           setUploadError("Image files must be smaller than 10MB")
           return
         }
 
-        // Check file type
+        // Validate file type
         if (!file.type.startsWith("image/")) {
           setUploadError("Only image files are allowed")
           return
         }
 
+        // Convert file to base64 for preview
         const reader = new FileReader()
         reader.onload = (event) => {
           if (event.target?.result) {
@@ -169,6 +329,7 @@ export default function EditBowlPage() {
                 isNew: true,
               },
             ])
+            setOrderChanged(true) // Mark order as changed when adding images
           }
         }
         reader.readAsDataURL(file)
@@ -176,14 +337,17 @@ export default function EditBowlPage() {
     }
   }
 
+  /**
+   * Remove an image from the list
+   */
   const removeImage = async (index: number) => {
     const imageToRemove = images[index]
 
-    // If it's an existing image, mark it for deletion in the database
+    // If it's an existing image, it will be deleted from storage when saving
     if (!imageToRemove.isNew && imageToRemove.id && imageToRemove.path) {
       try {
-        // We'll delete from storage when saving the form
         setImages(images.filter((_, i) => i !== index))
+        setOrderChanged(true)
       } catch (error) {
         console.error("Error marking image for deletion:", error)
         toast({
@@ -195,9 +359,119 @@ export default function EditBowlPage() {
     } else {
       // For new images, just remove from the array
       setImages(images.filter((_, i) => i !== index))
+      setOrderChanged(true)
+    }
+
+    // Adjust selected image index if needed
+    if (selectedImageIndex >= images.length - 1) {
+      setSelectedImageIndex(Math.max(0, images.length - 2))
     }
   }
 
+  /**
+   * Handle drag end event for image reordering
+   */
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    // Extract indices from the drag IDs
+    const oldIndex = Number.parseInt(active.id.toString().replace("image-", ""))
+    const newIndex = Number.parseInt(over.id.toString().replace("image-", ""))
+
+    if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+      // Reorder the images array
+      const newImages = arrayMove(images, oldIndex, newIndex)
+      setImages(newImages)
+
+      // Update selected image index if needed
+      if (selectedImageIndex === oldIndex) {
+        setSelectedImageIndex(newIndex)
+      } else if (selectedImageIndex === newIndex) {
+        setSelectedImageIndex(oldIndex)
+      }
+
+      setOrderChanged(true)
+
+      toast({
+        title: "Image Reordered",
+        description: "Don't forget to save your changes!",
+      })
+    }
+  }
+
+  /**
+   * Move image using arrow buttons (alternative to drag-and-drop)
+   */
+  const moveImage = (currentIndex: number, direction: "left" | "right") => {
+    if (images.length <= 1) return
+
+    const newIndex =
+      direction === "left" ? Math.max(0, currentIndex - 1) : Math.min(images.length - 1, currentIndex + 1)
+
+    if (newIndex === currentIndex) return
+
+    // Create a new array with the reordered images
+    const newImages = [...images]
+    const [movedImage] = newImages.splice(currentIndex, 1)
+    newImages.splice(newIndex, 0, movedImage)
+
+    setImages(newImages)
+
+    // Update selected image index
+    if (selectedImageIndex === currentIndex) {
+      setSelectedImageIndex(newIndex)
+    }
+
+    setOrderChanged(true)
+  }
+
+  /**
+   * Open delete confirmation dialog
+   */
+  const openDeleteDialog = (index: number) => {
+    setImageToDeleteIndex(index)
+    setDeleteDialogOpen(true)
+  }
+
+  /**
+   * Handle image deletion with confirmation
+   */
+  const handleDeleteImage = async () => {
+    if (imageToDeleteIndex === null) {
+      setDeleteDialogOpen(false)
+      return
+    }
+
+    setDeletingImage(true)
+
+    try {
+      await removeImage(imageToDeleteIndex)
+
+      toast({
+        title: "Image Removed",
+        description: "The image will be deleted when you save the form.",
+      })
+    } catch (error) {
+      console.error("Error deleting image:", error)
+      toast({
+        title: "Error",
+        description: "There was a problem removing the image. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingImage(false)
+      setDeleteDialogOpen(false)
+      setImageToDeleteIndex(null)
+    }
+  }
+
+  /**
+   * Handle form submission
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!bowl || !supabase) return
@@ -264,7 +538,7 @@ export default function EditBowlPage() {
         }
       }
 
-      // Upload new images with better error handling
+      // Upload new images with error handling
       const newImages = images.filter((img) => img.isNew)
       let uploadErrors = 0
       let uploadedCount = 0
@@ -289,7 +563,6 @@ export default function EditBowlPage() {
               uploadedCount++
             }
           } else {
-            // Storage failed, but don't fail the whole operation
             console.error(`Failed to upload image ${i + 1}`)
             uploadErrors++
             setUploadError(`Image ${i + 1} failed to upload. This may be due to storage permissions.`)
@@ -298,6 +571,19 @@ export default function EditBowlPage() {
           console.error("Error uploading image:", error)
           uploadErrors++
           setUploadError(`Failed to upload image ${i + 1}: ${error instanceof Error ? error.message : "Unknown error"}`)
+        }
+      }
+
+      // Update display order for all remaining images
+      const nonNewImages = images.filter((img) => !img.isNew)
+      for (let i = 0; i < nonNewImages.length; i++) {
+        if (nonNewImages[i].id) {
+          try {
+            await supabase.from("bowl_images").update({ display_order: i }).eq("id", nonNewImages[i].id)
+          } catch (error) {
+            console.error("Error updating image order:", error)
+            // Non-critical error, continue
+          }
         }
       }
 
@@ -321,32 +607,6 @@ export default function EditBowlPage() {
         })
       }
 
-      // Update display order for all remaining images
-      const nonNewImages = images.filter((img) => !img.isNew)
-      for (let i = 0; i < nonNewImages.length; i++) {
-        if (nonNewImages[i].id) {
-          try {
-            await supabase.from("bowl_images").update({ display_order: i }).eq("id", nonNewImages[i].id)
-          } catch (error) {
-            console.error("Error updating image order:", error)
-            // Non-critical error, continue
-          }
-        }
-      }
-
-      if (uploadErrors > 0) {
-        toast({
-          title: "Partial Success",
-          description: `Bowl updated, but ${uploadErrors} image(s) failed to upload. Please try uploading them again.`,
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Bowl Updated",
-          description: "Your bowl has been successfully updated.",
-        })
-      }
-
       router.push(`/bowl/${bowl.id}`)
     } catch (error) {
       console.error("Error updating bowl:", error)
@@ -361,6 +621,7 @@ export default function EditBowlPage() {
     }
   }
 
+  // Loading state
   if (initialLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
@@ -369,6 +630,7 @@ export default function EditBowlPage() {
     )
   }
 
+  // Bowl not found state
   if (!bowl) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50 flex items-center justify-center">
@@ -388,6 +650,7 @@ export default function EditBowlPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
       <div className="container mx-auto px-4 py-8">
+        {/* Header */}
         <div className="mb-6">
           <Link href={`/bowl/${params.id}`} className="inline-flex items-center text-amber-700 hover:text-amber-800">
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -395,157 +658,257 @@ export default function EditBowlPage() {
           </Link>
         </div>
 
-        <Card className="max-w-2xl mx-auto bg-white/80 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-2xl text-amber-900">Edit Bowl</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {uploadError && (
-              <Alert className="mb-6 border-red-200 bg-red-50">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-700">
-                  <strong>Upload Error:</strong> {uploadError}
-                  <div className="mt-2 text-sm">
-                    This might be due to storage permissions. Try running the SQL script to fix RLS policies, or check
-                    your Supabase storage bucket settings.
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left column - Image Management */}
+          <div className="lg:col-span-2">
+            <Card className="bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-xl text-amber-900">Image Management</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Image Upload */}
+                <div>
+                  <Label htmlFor="images">Upload Images</Label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">Upload additional images or replace existing ones</p>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Maximum file size: 10MB. Supported formats: JPG, PNG, GIF
+                    </p>
+                    <Input
+                      id="images"
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                    <Button type="button" variant="outline" onClick={() => document.getElementById("images")?.click()}>
+                      Choose Images
+                    </Button>
                   </div>
-                </AlertDescription>
-              </Alert>
-            )}
+                </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="woodType">Wood Type *</Label>
-                  <Input
-                    id="woodType"
-                    name="woodType"
-                    value={formData.woodType}
-                    onChange={handleInputChange}
-                    placeholder="e.g., Oak, Maple, Cherry"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="woodSource">Wood Source *</Label>
-                  <Input
-                    id="woodSource"
-                    name="woodSource"
-                    value={formData.woodSource}
-                    onChange={handleInputChange}
-                    placeholder="e.g., Local sawmill, Backyard tree"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="dateMade">Date Made *</Label>
-                <Input
-                  id="dateMade"
-                  name="dateMade"
-                  type="date"
-                  value={formData.dateMade}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-
-              <div>
-                <Label>Finishes Used</Label>
-                <div className="flex gap-2 mb-2">
-                  <Input
-                    value={newFinish}
-                    onChange={(e) => setNewFinish(e.target.value)}
-                    placeholder="e.g., Tung oil, Polyurethane"
-                    onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addFinish())}
-                  />
-                  <Button type="button" onClick={addFinish} variant="outline">
-                    Add
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {finishes.map((finish, index) => (
-                    <Badge key={index} variant="secondary" className="flex items-center gap-1">
-                      {finish}
-                      <X className="w-3 h-3 cursor-pointer" onClick={() => removeFinish(finish)} />
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="images">Images</Label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-600 mb-2">Upload additional images or replace existing ones</p>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Maximum file size: 10MB. Supported formats: JPG, PNG, GIF
-                  </p>
-                  <Input
-                    id="images"
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                  <Button type="button" variant="outline" onClick={() => document.getElementById("images")?.click()}>
-                    Choose Images
-                  </Button>
-                </div>
+                {/* Image Grid with Drag and Drop */}
                 {images.length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-                    {images.map((image, index) => (
-                      <div key={index} className="relative">
-                        <Image
-                          src={image.url || "/placeholder.svg?height=150&width=200"}
-                          alt={`Bowl image ${index + 1}`}
-                          width={200}
-                          height={150}
-                          className="w-full h-24 object-cover rounded-md"
-                        />
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="absolute top-1 right-1 w-6 h-6 p-0"
-                          onClick={() => removeImage(index)}
-                        >
-                          <X className="w-3 h-3" />
-                        </Button>
-                        {image.isNew && <Badge className="absolute bottom-1 left-1 text-xs bg-blue-500">New</Badge>}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <h3 className="text-sm font-medium text-amber-800">Image Gallery</h3>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-1">
+                                <Info className="h-4 w-4 text-amber-600" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="max-w-xs">
+                                The first image (marked with a star) will be shown on the bowl cards on the home page.
+                                Drag and drop to reorder images or use the arrow buttons.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
-                    ))}
+                      {orderChanged && (
+                        <Badge variant="outline" className="text-amber-600 border-amber-300">
+                          Changes will be saved when you submit the form
+                        </Badge>
+                      )}
+                    </div>
+
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                      <SortableContext
+                        items={images.map((_, index) => `image-${index}`)}
+                        strategy={rectSortingStrategy}
+                      >
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          {images.map((image, index) => (
+                            <div key={`image-${index}`} className="relative group">
+                              <SortableImage
+                                image={image}
+                                index={index}
+                                isSelected={selectedImageIndex === index}
+                                onSelect={() => setSelectedImageIndex(index)}
+                                onDeleteClick={() => openDeleteDialog(index)}
+                                isDeletable={images.length > 1}
+                              />
+
+                              {/* Arrow Controls */}
+                              <div className="absolute -bottom-2 left-0 right-0 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 bg-white/80"
+                                  onClick={() => moveImage(index, "left")}
+                                  disabled={index === 0}
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 bg-white/80"
+                                  onClick={() => moveImage(index, "right")}
+                                  disabled={index === images.length - 1}
+                                >
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+
+                    <div className="text-xs text-amber-600 mt-2 italic">
+                      Tip: Drag the grip handle to reorder images, or use the arrow buttons. Click the X to delete an
+                      image.
+                    </div>
                   </div>
                 )}
-              </div>
+              </CardContent>
+            </Card>
+          </div>
 
-              <div>
-                <Label htmlFor="comments">Comments</Label>
-                <Textarea
-                  id="comments"
-                  name="comments"
-                  value={formData.comments}
-                  onChange={handleInputChange}
-                  placeholder="Notes about the turning process, challenges, or special features..."
-                  rows={4}
-                />
-              </div>
+          {/* Right column - Form */}
+          <div>
+            <Card className="bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-2xl text-amber-900">Edit Bowl</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {uploadError && (
+                  <Alert className="mb-6 border-red-200 bg-red-50">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <AlertDescription className="text-red-700">
+                      <strong>Upload Error:</strong> {uploadError}
+                      <div className="mt-2 text-sm">
+                        This might be due to storage permissions. Try running the SQL script to fix RLS policies, or
+                        check your Supabase storage bucket settings.
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-              <div className="flex gap-4">
-                <Button type="submit" disabled={loading} className="bg-amber-600 hover:bg-amber-700">
-                  {loading ? "Saving..." : "Save Changes"}
-                </Button>
-                <Link href={`/bowl/${params.id}`}>
-                  <Button type="button" variant="outline">
-                    Cancel
-                  </Button>
-                </Link>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <Label htmlFor="woodType">Wood Type *</Label>
+                      <Input
+                        id="woodType"
+                        name="woodType"
+                        value={formData.woodType}
+                        onChange={handleInputChange}
+                        placeholder="e.g., Oak, Maple, Cherry"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="woodSource">Wood Source *</Label>
+                      <Input
+                        id="woodSource"
+                        name="woodSource"
+                        value={formData.woodSource}
+                        onChange={handleInputChange}
+                        placeholder="e.g., Local sawmill, Backyard tree"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="dateMade">Date Made *</Label>
+                    <Input
+                      id="dateMade"
+                      name="dateMade"
+                      type="date"
+                      value={formData.dateMade}
+                      onChange={handleInputChange}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Finishes Used</Label>
+                    <div className="flex gap-2 mb-2">
+                      <Input
+                        value={newFinish}
+                        onChange={(e) => setNewFinish(e.target.value)}
+                        placeholder="e.g., Tung oil, Polyurethane"
+                        onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addFinish())}
+                      />
+                      <Button type="button" onClick={addFinish} variant="outline">
+                        Add
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {finishes.map((finish, index) => (
+                        <Badge key={index} variant="secondary" className="flex items-center gap-1">
+                          {finish}
+                          <X className="w-3 h-3 cursor-pointer" onClick={() => removeFinish(finish)} />
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="comments">Comments</Label>
+                    <Textarea
+                      id="comments"
+                      name="comments"
+                      value={formData.comments}
+                      onChange={handleInputChange}
+                      placeholder="Notes about the turning process, challenges, or special features..."
+                      rows={4}
+                    />
+                  </div>
+
+                  <div className="flex gap-4">
+                    <Button type="submit" disabled={loading} className="bg-amber-600 hover:bg-amber-700">
+                      {loading ? "Saving..." : "Save Changes"}
+                    </Button>
+                    <Link href={`/bowl/${params.id}`}>
+                      <Button type="button" variant="outline">
+                        Cancel
+                      </Button>
+                    </Link>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Delete Image Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Image</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this image? This action cannot be undone.
+                {imageToDeleteIndex === 0 && (
+                  <p className="mt-2 text-amber-600 font-medium">
+                    This is your primary image that appears on the home page.
+                  </p>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteImage}
+                className="bg-red-600 hover:bg-red-700"
+                disabled={deletingImage}
+              >
+                {deletingImage ? "Removing..." : "Delete Image"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )
