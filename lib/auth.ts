@@ -7,8 +7,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error("Missing Supabase environment variables")
 }
 
-// Create a separate auth client
-export const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey)
+// Create a separate auth client with specific options for better session management
+export const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: "pkce",
+  },
+})
 
 // Auth helper functions
 export const signUp = async (email: string, password: string, fullName: string) => {
@@ -82,6 +89,28 @@ export const signOut = async () => {
   try {
     console.log("lib/auth: Initiating sign out")
 
+    // Clear all possible storage locations first
+    try {
+      const keysToRemove = [
+        "supabase.auth.token",
+        "sb-auth-token",
+        `sb-${supabaseAuth.supabaseUrl.split("//")[1]?.split(".")[0]}-auth-token`,
+      ]
+      keysToRemove.forEach((key) => {
+        localStorage.removeItem(key)
+        sessionStorage.removeItem(key)
+      })
+
+      // Clear all localStorage items that start with 'sb-'
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("sb-")) {
+          localStorage.removeItem(key)
+        }
+      })
+    } catch (e) {
+      console.log("lib/auth: Error clearing storage:", e)
+    }
+
     // Check if we have a valid session first
     const {
       data: { session },
@@ -93,7 +122,9 @@ export const signOut = async () => {
       return { error: null }
     }
 
-    const { error } = await supabaseAuth.auth.signOut()
+    const { error } = await supabaseAuth.auth.signOut({
+      scope: "global", // Sign out from all sessions
+    })
 
     if (error) {
       // Check if it's a session missing error - this is actually OK
