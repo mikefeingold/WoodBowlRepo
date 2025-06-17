@@ -60,8 +60,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log("AuthProvider: User signed out, clearing user state")
         setUser(null)
         // Clear any cached data
-        localStorage.removeItem("supabase.auth.token")
-        sessionStorage.clear()
+        try {
+          localStorage.removeItem("supabase.auth.token")
+          sessionStorage.clear()
+        } catch (e) {
+          console.log("AuthProvider: Error clearing storage:", e)
+        }
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         console.log("AuthProvider: User signed in or token refreshed")
         setUser(session?.user ?? null)
@@ -83,6 +87,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("AuthProvider: Initiating sign out")
       setLoading(true)
 
+      // Check if we have a valid session first
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabaseAuth.auth.getSession()
+
+      if (sessionError) {
+        console.log("AuthProvider: Session error, treating as already signed out:", sessionError)
+        // If there's a session error, treat as already signed out
+        setUser(null)
+        try {
+          localStorage.removeItem("supabase.auth.token")
+          sessionStorage.clear()
+        } catch (e) {
+          console.log("AuthProvider: Error clearing storage:", e)
+        }
+        return
+      }
+
+      if (!session) {
+        console.log("AuthProvider: No active session, treating as already signed out")
+        // No session exists, just clear local state
+        setUser(null)
+        try {
+          localStorage.removeItem("supabase.auth.token")
+          sessionStorage.clear()
+        } catch (e) {
+          console.log("AuthProvider: Error clearing storage:", e)
+        }
+        return
+      }
+
       // Clear user state immediately for better UX
       setUser(null)
 
@@ -91,25 +127,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.error("AuthProvider: Sign out error:", error)
-        throw error
+
+        // Check if it's a session missing error - this is actually OK
+        if (error.message?.includes("Auth session missing") || error.message?.includes("session_not_found")) {
+          console.log("AuthProvider: Session already expired/missing, treating as successful sign out")
+          // Don't throw error for missing session - just continue with cleanup
+        } else {
+          throw error
+        }
       }
 
       console.log("AuthProvider: Sign out successful")
 
       // Additional cleanup
-      localStorage.removeItem("supabase.auth.token")
-      sessionStorage.clear()
+      try {
+        localStorage.removeItem("supabase.auth.token")
+        sessionStorage.clear()
+      } catch (e) {
+        console.log("AuthProvider: Error clearing storage:", e)
+      }
 
       // Force reload to clear any cached state
-      window.location.reload()
+      setTimeout(() => {
+        window.location.reload()
+      }, 100)
     } catch (error) {
       console.error("AuthProvider: Sign out failed:", error)
-      // Restore user state if sign out failed
-      const {
-        data: { session },
-      } = await supabaseAuth.auth.getSession()
-      setUser(session?.user ?? null)
-      throw error
+
+      // Even if sign out fails, clear local state
+      setUser(null)
+      try {
+        localStorage.removeItem("supabase.auth.token")
+        sessionStorage.clear()
+      } catch (e) {
+        console.log("AuthProvider: Error clearing storage:", e)
+      }
+
+      // Don't re-throw the error - just log it and continue
+      console.log("AuthProvider: Continuing with local cleanup despite error")
     } finally {
       setLoading(false)
     }

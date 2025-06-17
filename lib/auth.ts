@@ -82,9 +82,25 @@ export const signOut = async () => {
   try {
     console.log("lib/auth: Initiating sign out")
 
+    // Check if we have a valid session first
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabaseAuth.auth.getSession()
+
+    if (sessionError || !session) {
+      console.log("lib/auth: No valid session found, treating as already signed out")
+      return { error: null }
+    }
+
     const { error } = await supabaseAuth.auth.signOut()
 
     if (error) {
+      // Check if it's a session missing error - this is actually OK
+      if (error.message?.includes("Auth session missing") || error.message?.includes("session_not_found")) {
+        console.log("lib/auth: Session already expired/missing, treating as successful sign out")
+        return { error: null }
+      }
       console.error("lib/auth: Sign out error:", error)
       return { error }
     }

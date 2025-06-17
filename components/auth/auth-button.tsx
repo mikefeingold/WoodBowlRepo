@@ -183,11 +183,18 @@ export function AuthButton() {
       })
     } catch (error) {
       console.error("AuthButton: Sign out error:", error)
-      toast({
-        title: "Sign Out Failed",
-        description: "There was an error signing out. Please try again.",
-        variant: "destructive",
-      })
+      // Don't show error toast for session missing errors - they're expected
+      if (!error?.message?.includes("Auth session missing")) {
+        toast({
+          title: "Sign Out",
+          description: "You've been signed out.",
+        })
+      } else {
+        toast({
+          title: "Signed Out",
+          description: "You've been signed out successfully.",
+        })
+      }
     } finally {
       setSignOutLoading(false)
     }
