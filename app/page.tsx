@@ -126,7 +126,7 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
           <div className="mb-4 md:mb-0">
-            <h1 className="text-4xl font-bold text-amber-900 mb-2">Wood Bowl Tracker</h1>
+            <h1 className="text-4xl font-bold text-amber-900 mb-2">Wood Bowl Tracker [github change]</h1>
             <p className="text-amber-700">Track your handcrafted wooden bowls</p>
           </div>
           <div className="flex gap-2">
