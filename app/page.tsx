@@ -3,13 +3,12 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Plus, Search, Calendar, TreesIcon as Wood, Bug, User } from "lucide-react"
+import { Plus, Search, Calendar, TreesIcon as Wood, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib/supabase"
-import { getDemoBowls } from "@/lib/demo-data"
 import { SupabaseSetup } from "@/components/supabase-setup"
 import { AuthButton } from "@/components/auth/auth-button"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -48,21 +47,7 @@ export default function HomePage() {
     async function fetchBowls() {
       try {
         if (!isSupabaseConfigured()) {
-          // Use demo data when Supabase is not configured
-          const demoBowls = getDemoBowls().map((bowl) => ({
-            ...bowl,
-            images: bowl.images.map((url, index) => ({
-              id: `demo-${index}`,
-              thumbnail: url,
-              medium: url,
-              full: url,
-              original: url,
-            })),
-            createdBy: "Demo User",
-          }))
-          // Sort demo bowls by date in descending order (newest first)
-          demoBowls.sort((a, b) => new Date(b.dateMade).getTime() - new Date(a.dateMade).getTime())
-          setBowls(demoBowls)
+          setError("Supabase is not configured. Please set up your database connection.")
           setLoading(false)
           return
         }
@@ -159,14 +144,6 @@ export default function HomePage() {
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4 text-red-700 text-sm">
             <strong>Error loading bowls:</strong> {error}
-            <div className="mt-2">
-              <Link href="/debug">
-                <Button size="sm" variant="outline" className="text-red-600 border-red-300">
-                  <Bug className="w-3 h-3 mr-1" />
-                  Debug Database
-                </Button>
-              </Link>
-            </div>
           </div>
         )}
 

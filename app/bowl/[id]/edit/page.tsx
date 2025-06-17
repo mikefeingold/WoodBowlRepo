@@ -1,14 +1,14 @@
 "use client"
 
 /**
- * Bowl Edit Page - EDITING INTERFACE
+ * Bowl Edit Page - EDITING INTERFACE WITH CAMERA INTEGRATION
  *
- * This page provides full editing capabilities for bowl data and images.
- * All image management functionality has been moved here from the details page.
+ * This page provides full editing capabilities for bowl data and images with integrated camera functionality.
  *
  * Features:
  * - Edit bowl metadata (wood type, source, date, finishes, comments)
  * - Upload new images with drag-and-drop support
+ * - Integrated camera capture with live preview
  * - Reorder images using drag-and-drop
  * - Delete individual images
  * - Image preview with editing controls
@@ -17,9 +17,21 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Upload, X, AlertTriangle, Info, GripVertical, Star, ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  ArrowLeft,
+  X,
+  AlertTriangle,
+  Info,
+  GripVertical,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  Camera,
+  RotateCcw,
+  ImageIcon,
+} from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
@@ -44,6 +56,7 @@ import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib
 import { uploadImage, deleteImage } from "@/lib/storage"
 import { useToast } from "@/hooks/use-toast"
 import { SupabaseSetup } from "@/components/supabase-setup"
+import { cameraManager } from "@/lib/pwa-utils"
 
 // Drag and drop imports for image reordering
 import {
@@ -159,6 +172,147 @@ function SortableImage({ image, index, isSelected, onSelect, onDeleteClick, isDe
   )
 }
 
+/**
+ * Integrated Camera Component
+ * Provides camera functionality within the edit interface
+ */
+function IntegratedCamera({
+  onCapture,
+  onClose,
+}: {
+  onCapture: (imageData: string) => void
+  onClose: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment")
+  const [isCapturing, setIsCapturing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Initialize camera
+  useEffect(() => {
+    startCamera()
+    return () => {
+      stopCamera()
+    }
+  }, [facingMode])
+
+  const startCamera = async () => {
+    try {
+      setError(null)
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      })
+
+      setStream(mediaStream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream
+      }
+    } catch (err) {
+      console.error("Camera access failed:", err)
+      setError("Camera access denied or not available")
+    }
+  }
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      setStream(null)
+    }
+  }
+
+  const switchCamera = async () => {
+    stopCamera()
+    setFacingMode((prev) => (prev === "user" ? "environment" : "user"))
+  }
+
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return
+
+    setIsCapturing(true)
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext("2d")!
+
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    ctx.drawImage(video, 0, 0)
+
+    const imageData = canvas.toDataURL("image/jpeg", 0.8)
+    onCapture(imageData)
+
+    // Flash effect
+    const flashDiv = document.createElement("div")
+    flashDiv.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: white; z-index: 9999; opacity: 0.8; pointer-events: none;
+    `
+    document.body.appendChild(flashDiv)
+
+    setTimeout(() => {
+      document.body.removeChild(flashDiv)
+      setIsCapturing(false)
+    }, 150)
+  }
+
+  if (error) {
+    return (
+      <div className="bg-black text-white p-6 rounded-lg text-center">
+        <Camera className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+        <p className="mb-4">{error}</p>
+        <Button onClick={onClose} variant="outline" className="text-black">
+          Close Camera
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-black rounded-lg overflow-hidden">
+      <div className="relative aspect-video">
+        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+        <canvas ref={canvasRef} className="hidden" />
+
+        {/* Camera controls overlay */}
+        <div className="absolute inset-0 flex flex-col justify-between p-4">
+          {/* Top controls */}
+          <div className="flex justify-between items-center">
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
+              <X className="w-5 h-5" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={switchCamera} className="text-white hover:bg-white/20">
+              <RotateCcw className="w-5 h-5" />
+            </Button>
+          </div>
+
+          {/* Bottom controls */}
+          <div className="flex justify-center">
+            <Button
+              size="icon"
+              onClick={capturePhoto}
+              disabled={isCapturing}
+              className="w-16 h-16 rounded-full bg-white hover:bg-gray-200 text-black border-4 border-white/50"
+            >
+              <Camera className="w-8 h-8" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Camera guidelines */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-64 h-64 border-2 border-white/30 rounded-lg"></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function EditBowlPage() {
   const params = useParams()
   const router = useRouter()
@@ -190,6 +344,10 @@ export default function EditBowlPage() {
   const [imageToDeleteIndex, setImageToDeleteIndex] = useState<number | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
+  // Camera state
+  const [showCamera, setShowCamera] = useState(false)
+  const [hasCamera, setHasCamera] = useState(false)
+
   // Set up drag-and-drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -201,6 +359,20 @@ export default function EditBowlPage() {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   )
+
+  // Check camera availability
+  useEffect(() => {
+    const checkCamera = async () => {
+      try {
+        const available = await cameraManager.hasCamera()
+        setHasCamera(available)
+      } catch (error) {
+        console.error("Error checking camera:", error)
+        setHasCamera(false)
+      }
+    }
+    checkCamera()
+  }, [])
 
   // Check Supabase configuration
   useEffect(() => {
@@ -299,7 +471,27 @@ export default function EditBowlPage() {
   }
 
   /**
-   * Handle new image uploads
+   * Handle camera capture
+   */
+  const handleCameraCapture = (imageData: string) => {
+    setImages((prev) => [
+      ...prev,
+      {
+        url: imageData,
+        isNew: true,
+      },
+    ])
+    setOrderChanged(true)
+    setShowCamera(false)
+
+    toast({
+      title: "Photo Captured",
+      description: "Image added to your bowl gallery",
+    })
+  }
+
+  /**
+   * Handle new image uploads from file input
    */
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -666,28 +858,61 @@ export default function EditBowlPage() {
                 <CardTitle className="text-xl text-amber-900">Image Management</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Image Upload */}
-                <div>
-                  <Label htmlFor="images">Upload Images</Label>
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                    <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600 mb-2">Upload additional images or replace existing ones</p>
-                    <p className="text-xs text-gray-500 mb-3">
-                      Maximum file size: 10MB. Supported formats: JPG, PNG, GIF
-                    </p>
-                    <Input
-                      id="images"
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                    />
-                    <Button type="button" variant="outline" onClick={() => document.getElementById("images")?.click()}>
-                      Choose Images
-                    </Button>
+                {/* Camera Integration */}
+                {showCamera ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-amber-800">Camera</h3>
+                      <Button variant="outline" size="sm" onClick={() => setShowCamera(false)}>
+                        Close Camera
+                      </Button>
+                    </div>
+                    <IntegratedCamera onCapture={handleCameraCapture} onClose={() => setShowCamera(false)} />
                   </div>
-                </div>
+                ) : (
+                  /* Image Upload Options */
+                  <div className="space-y-4">
+                    <Label>Add Images</Label>
+
+                    {/* Upload buttons */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Camera button */}
+                      {hasCamera && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setShowCamera(true)}
+                          className="h-24 flex flex-col items-center justify-center space-y-2 border-2 border-dashed border-amber-300 hover:border-amber-400 hover:bg-amber-50"
+                        >
+                          <Camera className="w-8 h-8 text-amber-600" />
+                          <span className="text-sm font-medium">Take Photo</span>
+                          <span className="text-xs text-gray-500">Use device camera</span>
+                        </Button>
+                      )}
+
+                      {/* File upload button */}
+                      <div className="relative">
+                        <Input
+                          id="images"
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                        <div className="h-24 flex flex-col items-center justify-center space-y-2 border-2 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 rounded-lg cursor-pointer">
+                          <ImageIcon className="w-8 h-8 text-gray-400" />
+                          <span className="text-sm font-medium">Choose Files</span>
+                          <span className="text-xs text-gray-500">Upload from device</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-500 text-center">
+                      Maximum file size: 10MB. Supported formats: JPG, PNG, GIF, WebP
+                    </p>
+                  </div>
+                )}
 
                 {/* Image Grid with Drag and Drop */}
                 {images.length > 0 && (
@@ -765,8 +990,8 @@ export default function EditBowlPage() {
                     </DndContext>
 
                     <div className="text-xs text-amber-600 mt-2 italic">
-                      Tip: Drag the grip handle to reorder images, or use the arrow buttons. Click the X to delete an
-                      image.
+                      Tip: Use the camera to take photos directly, drag the grip handle to reorder images, or use the
+                      arrow buttons. Click the X to delete an image.
                     </div>
                   </div>
                 )}

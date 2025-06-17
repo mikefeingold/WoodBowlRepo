@@ -26,7 +26,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { supabase, mapDatabaseBowlToFrontend, isSupabaseConfigured } from "@/lib/supabase"
 import { SupabaseSetup } from "@/components/supabase-setup"
 import { useToast } from "@/hooks/use-toast"
-import { getDemoBowl } from "@/lib/demo-data"
 import ImageViewer from "@/components/image-viewer"
 import { useAuth } from "@/components/auth/auth-provider"
 
@@ -78,7 +77,7 @@ export default function BowlDetailPage() {
     setSupabaseConfigured(isSupabaseConfigured())
   }, [])
 
-  // Fetch bowl data from database or demo data
+  // Fetch bowl data from database
   useEffect(() => {
     async function fetchBowl() {
       try {
@@ -91,24 +90,6 @@ export default function BowlDetailPage() {
 
         if (error) {
           console.error("Error fetching bowl:", error)
-
-          // Fallback to demo data if database fetch fails
-          const demoBowl = getDemoBowl(params.id as string)
-          if (demoBowl) {
-            // Convert demo bowl format to match expected structure
-            setBowl({
-              ...demoBowl,
-              images: demoBowl.images.map((url, index) => ({
-                id: `demo-${index}`,
-                thumbnail: url,
-                medium: url,
-                full: url,
-                original: url,
-              })),
-              createdBy: "Demo User",
-            })
-          }
-
           setLoading(false)
           return
         }
