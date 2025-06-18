@@ -25,10 +25,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
-      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/placeholder.svg", sizes: "192x192", type: "image/svg+xml" },
     ],
     shortcut: "/favicon.ico",
-    apple: [{ url: "/icon-192x192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/placeholder.svg", sizes: "192x192", type: "image/svg+xml" }],
   },
   appleWebApp: {
     capable: true,
@@ -55,10 +55,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Favicon and Icons */}
+        {/* Favicon and Icons - Using existing files only */}
         <link rel="icon" href="/favicon.ico" sizes="32x32" />
-        <link rel="icon" href="/icon-192x192.png" type="image/png" sizes="192x192" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+        <link rel="icon" href="/placeholder.svg" type="image/svg+xml" sizes="any" />
+        <link rel="apple-touch-icon" href="/placeholder.svg" />
 
         {/* PWA Manifest */}
         <link rel="manifest" href="/manifest.json" />
