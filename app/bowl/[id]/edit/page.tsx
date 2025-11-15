@@ -18,20 +18,8 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { useParams, useRouter } from "next/navigation"
-import {
-  ArrowLeft,
-  X,
-  AlertTriangle,
-  Info,
-  GripVertical,
-  Star,
-  ChevronLeft,
-  ChevronRight,
-  Camera,
-  RotateCcw,
-  ImageIcon,
-} from "lucide-react"
+import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, X, AlertTriangle, Info, GripVertical, Star, ChevronLeft, ChevronRight, Camera, RotateCcw, ImageIcon } from 'lucide-react'
 import Link from "next/link"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
@@ -399,7 +387,7 @@ export default function EditBowlPage() {
         }
 
         // Map database bowl to frontend format
-        const mappedBowl = await mapDatabaseBowlToFrontend(data)
+        const mappedBowl = await mapDatabaseBowlToFrontend(data, 'oldest-first')
         setBowl(mappedBowl)
 
         // Set form data
@@ -617,8 +605,6 @@ export default function EditBowlPage() {
     if (selectedImageIndex === currentIndex) {
       setSelectedImageIndex(newIndex)
     }
-
-    setOrderChanged(true)
   }
 
   /**

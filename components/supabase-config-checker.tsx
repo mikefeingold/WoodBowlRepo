@@ -75,8 +75,8 @@ export default function SupabaseConfigChecker() {
     // Check 2: Client Connection
     if (isSupabaseConfigured() && supabase) {
       try {
-        const { data, error } = await supabase.from("bowls").select("*") //from page.tsx
-        
+        const { data, error } = await supabase.from("bowls").select("count", { count: "exact", head: true })
+
         if (error) {
           newChecks.push({
             name: "Database Connection",
@@ -89,7 +89,7 @@ export default function SupabaseConfigChecker() {
             name: "Database Connection",
             status: "success",
             message: "Successfully connected to database",
-            details: `Found ${data?.length || 0} bowls`,
+            details: `Found ${data?.length || 0} records`,
           })
         }
       } catch (err) {

@@ -74,7 +74,7 @@ export const getImageUrls = (image: BowlImage): BowlImageUrls => {
 }
 
 // Helper function to convert database bowl to frontend bowl format
-export const mapDatabaseBowlToFrontend = async (bowl: Bowl) => {
+export const mapDatabaseBowlToFrontend = async (bowl: Bowl, imageOrder: 'newest-first' | 'oldest-first' = 'newest-first') => {
   if (!supabase) {
     throw new Error("Supabase not configured")
   }
@@ -82,12 +82,11 @@ export const mapDatabaseBowlToFrontend = async (bowl: Bowl) => {
   // Get finishes for this bowl
   const { data: finishesData } = await supabase.from("bowl_finishes").select("finish_name").eq("bowl_id", bowl.id)
 
-  // Get images for this bowl
   const { data: imagesData } = await supabase
     .from("bowl_images")
     .select("*")
     .eq("bowl_id", bowl.id)
-    .order("display_order", { ascending: true })
+    .order("display_order", { ascending: imageOrder === 'oldest-first' })
 
   // Get creator profile if user_id exists
   let creatorName = "Unknown"

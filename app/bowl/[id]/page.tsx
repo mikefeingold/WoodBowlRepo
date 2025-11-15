@@ -15,10 +15,10 @@
  */
 
 import { useState, useEffect, useCallback } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter } from 'next/navigation'
 import Link from "next/link"
 import Image from "next/image"
-import { ArrowLeft, Edit, Trash2, Calendar, MapPin, QrCode, Download, ImageIcon, Star, User } from "lucide-react"
+import { ArrowLeft, Edit, Trash2, Calendar, MapPin, QrCode, Download, ImageIcon, Star, User } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -95,7 +95,7 @@ export default function BowlDetailPage() {
         }
 
         // Transform database bowl to frontend format
-        const mappedBowl = await mapDatabaseBowlToFrontend(data)
+        const mappedBowl = await mapDatabaseBowlToFrontend(data, 'oldest-first')
         setBowl(mappedBowl)
       } catch (error) {
         console.error("Error in fetchBowl:", error)
