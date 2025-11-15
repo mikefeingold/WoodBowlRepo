@@ -100,8 +100,12 @@ interface SortableImageProps {
  */
 function SortableImage({ image, index, isSelected, onSelect, onDeleteClick, isDeletable }: SortableImageProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: `image-${index}`, // Use index as ID since we don't have stable IDs for new images
+    id: `image-${index}`,
   })
+
+  useEffect(() => {
+    console.log("[v0] SortableImage mounted:", { index, isDragging })
+  }, [index, isDragging])
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -134,13 +138,16 @@ function SortableImage({ image, index, isSelected, onSelect, onDeleteClick, isDe
         {image.isNew && <Badge className="absolute bottom-1 left-1 text-xs bg-blue-500">New</Badge>}
       </button>
 
-      {/* Drag handle */}
       <div
         {...attributes}
         {...listeners}
-        className="absolute top-1 right-1 bg-white/70 hover:bg-white/90 rounded-full p-1 cursor-grab active:cursor-grabbing"
+        className="absolute top-1 right-1 bg-white/90 hover:bg-white rounded-full p-2 cursor-grab active:cursor-grabbing touch-none md:p-1"
+        onClick={(e) => {
+          e.stopPropagation()
+          console.log("[v0] Drag handle clicked on mobile")
+        }}
       >
-        <GripVertical className="h-3 w-3 text-amber-700" />
+        <GripVertical className="h-4 w-4 md:h-3 md:w-3 text-amber-700" />
       </div>
 
       {/* Delete button */}
@@ -341,13 +348,13 @@ export default function EditBowlPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // 8px of movement required before drag starts
+        distance: 8,
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 250, // 250ms delay before activating
-        tolerance: 5, // 5px tolerance for movement
+        delay: 150, // Reduced from 250ms to 150ms for faster response
+        tolerance: 8, // Increased from 5px to 8px for more forgiving touch
       },
     }),
     useSensor(KeyboardSensor, {
@@ -561,6 +568,8 @@ export default function EditBowlPage() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
 
+    console.log("[v0] Drag end:", { active: active.id, over: over?.id })
+
     if (!over || active.id === over.id) {
       return
     }
@@ -568,6 +577,8 @@ export default function EditBowlPage() {
     // Extract indices from the drag IDs
     const oldIndex = Number.parseInt(active.id.toString().replace("image-", ""))
     const newIndex = Number.parseInt(over.id.toString().replace("image-", ""))
+
+    console.log("[v0] Reordering images:", { oldIndex, newIndex })
 
     if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
       // Reorder the images array
@@ -601,17 +612,25 @@ export default function EditBowlPage() {
 
     if (newIndex === currentIndex) return
 
+    console.log("[v0] Moving image with arrows:", { currentIndex, direction, newIndex })
+
     // Create a new array with the reordered images
     const newImages = [...images]
     const [movedImage] = newImages.splice(currentIndex, 1)
     newImages.splice(newIndex, 0, movedImage)
 
     setImages(newImages)
+    setOrderChanged(true)
 
     // Update selected image index
     if (selectedImageIndex === currentIndex) {
       setSelectedImageIndex(newIndex)
     }
+
+    toast({
+      title: "Image Moved",
+      description: "Don't forget to save your changes!",
+    })
   }
 
   /**
@@ -953,27 +972,26 @@ export default function EditBowlPage() {
                                 isDeletable={images.length > 1}
                               />
 
-                              {/* Arrow Controls */}
-                              <div className="absolute -bottom-2 left-0 right-0 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="absolute -bottom-8 left-0 right-0 flex justify-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                 <Button
                                   type="button"
                                   variant="secondary"
                                   size="sm"
-                                  className="h-6 w-6 p-0 bg-white/80"
+                                  className="h-8 w-8 p-0 bg-white shadow-md md:h-6 md:w-6"
                                   onClick={() => moveImage(index, "left")}
                                   disabled={index === 0}
                                 >
-                                  <ChevronLeft className="h-4 w-4" />
+                                  <ChevronLeft className="h-5 w-5 md:h-4 md:w-4" />
                                 </Button>
                                 <Button
                                   type="button"
                                   variant="secondary"
                                   size="sm"
-                                  className="h-6 w-6 p-0 bg-white/80"
+                                  className="h-8 w-8 p-0 bg-white shadow-md md:h-6 md:w-6"
                                   onClick={() => moveImage(index, "right")}
                                   disabled={index === images.length - 1}
                                 >
-                                  <ChevronRight className="h-4 w-4" />
+                                  <ChevronRight className="h-5 w-5 md:h-4 md:w-4" />
                                 </Button>
                               </div>
                             </div>
@@ -982,9 +1000,9 @@ export default function EditBowlPage() {
                       </SortableContext>
                     </DndContext>
 
-                    <div className="text-xs text-amber-600 mt-2 italic">
-                      Tip: Use the camera to take photos directly, drag the grip handle to reorder images, or use the
-                      arrow buttons. Click the X to delete an image.
+                    <div className="text-xs text-amber-600 mt-8 md:mt-2 italic">
+                      Tip: On mobile, use the arrow buttons below each image to reorder. On desktop, drag the grip
+                      handle or use arrow buttons. Click the X to delete an image.
                     </div>
                   </div>
                 )}
