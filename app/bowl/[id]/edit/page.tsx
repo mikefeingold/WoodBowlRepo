@@ -52,6 +52,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor, // Added TouchSensor for mobile support
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -341,6 +342,12 @@ export default function EditBowlPage() {
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8, // 8px of movement required before drag starts
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250, // 250ms delay before activating
+        tolerance: 5, // 5px tolerance for movement
       },
     }),
     useSensor(KeyboardSensor, {
