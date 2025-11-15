@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Plus, Search, Calendar, TreesIcon as Wood, User } from "lucide-react"
+import { Plus, Search, Calendar, Sword as Wood, User } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -57,18 +57,23 @@ export default function HomePage() {
           return
         }
 
-        console.log("Fetching bowls from Supabase...")
+        console.log("[v0] Fetching bowls from Supabase...")
 
+        const cacheBreaker = Date.now()
+        
         // Fetch all bowls from Supabase, ordered by date_made in descending order (newest first)
-        const { data, error } = await supabase.from("bowls").select("*").order("date_made", { ascending: false })
+        const { data, error } = await supabase
+          .from("bowls")
+          .select("*")
+          .order("date_made", { ascending: false })
 
         if (error) {
-          console.error("Error fetching bowls:", error)
+          console.error("[v0] Error fetching bowls:", error)
           setError(`Failed to fetch bowls: ${error.message}`)
           return
         }
 
-        console.log(`Found ${data.length} bowls in database`)
+        console.log(`[v0] Found ${data.length} bowls in database at ${new Date(cacheBreaker).toISOString()}`)
 
         if (data.length === 0) {
           setBowls([])
@@ -76,13 +81,13 @@ export default function HomePage() {
           return
         }
 
-        // Map database bowls to frontend format
-        const mappedBowls = await Promise.all(data.map((bowl) => mapDatabaseBowlToFrontend(bowl)))
-        console.log("Mapped bowls:", mappedBowls)
+        // Map database bowls to frontend format - newest image first for homepage
+        const mappedBowls = await Promise.all(data.map((bowl) => mapDatabaseBowlToFrontend(bowl, 'newest-first')))
+        console.log("[v0] Mapped bowls with newest images first")
 
         setBowls(mappedBowls)
       } catch (error) {
-        console.error("Error in fetchBowls:", error)
+        console.error("[v0] Error in fetchBowls:", error)
         setError(`Exception: ${error instanceof Error ? error.message : "Unknown error"}`)
       } finally {
         setLoading(false)

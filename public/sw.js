@@ -1,9 +1,9 @@
-const CACHE_NAME = "bowl-tracker-v1"
-const STATIC_CACHE = "bowl-tracker-static-v1"
-const DYNAMIC_CACHE = "bowl-tracker-dynamic-v1"
+const CACHE_VERSION = 2
+const STATIC_CACHE = `bowl-tracker-static-v${CACHE_VERSION}`
+const DYNAMIC_CACHE = `bowl-tracker-dynamic-v${CACHE_VERSION}`
 
 // Essential files to cache
-const STATIC_FILES = ["/", "/manifest.json", "/offline"]
+const STATIC_FILES = ["/manifest.json"]
 
 // Install event - cache static files
 self.addEventListener("install", (event) => {
@@ -13,8 +13,7 @@ self.addEventListener("install", (event) => {
       .open(STATIC_CACHE)
       .then((cache) => {
         console.log("Caching static files")
-        // Only cache files that definitely exist
-        return cache.addAll(["/", "/manifest.json"])
+        return cache.addAll(STATIC_FILES)
       })
       .catch((error) => {
         console.error("Cache installation failed:", error)
@@ -47,7 +46,6 @@ self.addEventListener("activate", (event) => {
   )
 })
 
-// Fetch event - serve from cache, fallback to network
 self.addEventListener("fetch", (event) => {
   const { request } = event
   const url = new URL(request.url)
@@ -62,11 +60,36 @@ self.addEventListener("fetch", (event) => {
     return
   }
 
-  // Skip API routes and dynamic content
-  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/")) {
+  // Skip API routes and Supabase requests - always fetch fresh
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/_next/") || url.hostname.includes("supabase")) {
     return
   }
 
+  // Network-first strategy for HTML pages to ensure fresh data
+  if (request.destination === "document" || url.pathname === "/" || url.pathname.startsWith("/bowl")) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Clone and cache the fresh response
+          if (response && response.status === 200) {
+            const responseToCache = response.clone()
+            caches.open(DYNAMIC_CACHE).then((cache) => {
+              cache.put(request, responseToCache)
+            })
+          }
+          return response
+        })
+        .catch(() => {
+          // Fallback to cache only if network fails
+          return caches.match(request).then((cachedResponse) => {
+            return cachedResponse || new Response("Offline", { status: 503 })
+          })
+        }),
+    )
+    return
+  }
+
+  // Cache-first strategy for static assets (images, icons, etc.)
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -75,15 +98,11 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(request)
         .then((response) => {
-          // Don't cache non-successful responses
           if (!response || response.status !== 200 || response.type !== "basic") {
             return response
           }
 
-          // Clone the response
           const responseToCache = response.clone()
-
-          // Cache dynamic content
           caches.open(DYNAMIC_CACHE).then((cache) => {
             cache.put(request, responseToCache)
           })
@@ -91,12 +110,6 @@ self.addEventListener("fetch", (event) => {
           return response
         })
         .catch(() => {
-          // Return offline page for navigation requests
-          if (request.destination === "document") {
-            return caches.match("/offline") || new Response("Offline", { status: 503 })
-          }
-
-          // Return a simple response for other requests
           return new Response("Offline", { status: 503 })
         })
     }),
